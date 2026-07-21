@@ -140,3 +140,34 @@
 #spu-helper-toast.spu-err {
   background: #c62828;
 }
+
+/* side-by-side product image compare */
+#spu-compare-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483200;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  cursor: zoom-out;
+}
+
+#spu-compare-overlay .spu-cmp-inner {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+#spu-compare-overlay .spu-cmp-img {
+  max-width: 48%;
+  max-height: 92vh;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 6px;
+}

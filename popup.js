@@ -5,10 +5,18 @@ var DEFAULTS = {
   autoKeyY: true,
   smartHints: true,
   smartHintsMinLen: 4,
-  keybindings: { next: ["w"], prev: ["s"], optionUp: ["a"], optionDown: ["d"] },
+  keybindings: {
+    next: ["w"],
+    prev: ["s"],
+    optionUp: ["a"],
+    optionDown: ["d"],
+    submitNext: ["\\"],
+    enlarge: [" "],
+    scrollDown: ["n", "c"],
+  },
 };
 
-var ACTIONS = ["next", "prev", "optionUp", "optionDown"];
+var ACTIONS = ["next", "prev", "optionUp", "optionDown", "submitNext", "enlarge", "scrollDown"];
 
 var current = JSON.parse(JSON.stringify(DEFAULTS));
 var listeningAction = null; // which action is waiting for a keypress
@@ -24,6 +32,7 @@ var els = {
 // ---- helpers ----------------------------------------------------------
 function displayKey(k) {
   if (!k) return "";
+  if (k === " ") return "Space";
   return k.length === 1 ? k.toUpperCase() : k;
 }
 

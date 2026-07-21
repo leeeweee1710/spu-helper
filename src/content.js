@@ -38,7 +38,15 @@
     smartHintsMinLen: 4, // shortest matched run to highlight
     layoutSizes: null, // remembered native splitter sizes { w, h }
     // Each action maps to a LIST of keys (any of them triggers it).
-    keybindings: { next: ["w"], prev: ["s"], optionUp: ["a"], optionDown: ["d"] },
+    keybindings: {
+      next: ["w"],
+      prev: ["s"],
+      optionUp: ["a"],
+      optionDown: ["d"],
+      submitNext: ["\\"],
+      enlarge: [" "],
+      scrollDown: ["n", "c"],
+    },
   };
   var settings = JSON.parse(JSON.stringify(DEFAULTS));
 
@@ -617,6 +625,7 @@
     if (!sig) return;
     if (!force && sig === lastRowSig) return;
     lastRowSig = sig;
+    ensureLocalConfirmSelected(); // fix the default selection before reading it
     buildOptions();
     renderList();
     reflectCurrentValue();
@@ -807,6 +816,147 @@
     try { modalObserver.observe(root, { childList: true, subtree: true }); } catch (e) {}
   }
 
+  // ======================================================================
+  // Submit + go to next page
+  // ======================================================================
+  function findButtonByText(txt) {
+    var root = getRoot();
+    var btns = root.querySelectorAll("button");
+    for (var i = 0; i < btns.length; i++) {
+      if ((btns[i].textContent || "").trim() === txt) return btns[i];
+    }
+    return null;
+  }
+
+  function submitAndNext() {
+    var submit = findButtonByText("Submit");
+    if (submit) {
+      submit.click();
+      toast("Submitted", true);
+    } else {
+      toast("Submit button not found", false);
+      return;
+    }
+    // Wait for the submission to upload before advancing the page.
+    setTimeout(function () {
+      var root = getRoot();
+      var nextLi = root.querySelector(".ant-pagination-next");
+      if (nextLi && nextLi.getAttribute("aria-disabled") === "true") return;
+      var nextBtn = (nextLi && (nextLi.querySelector("button, a") || nextLi)) ||
+        root.querySelector('.ant-pagination-next button, [aria-label="Next Page"], [aria-label="next"]');
+      if (nextBtn) nextBtn.click();
+    }, 1500);
+  }
+
+  // ======================================================================
+  // Side-by-side image compare (replaces the native single-image lightbox)
+  // ======================================================================
+  var compareEl = null;
+  var compareOpen = false;
+
+  function largestImg(panel) {
+    var imgs = panel.querySelectorAll("img");
+    var best = null, area = 0;
+    for (var i = 0; i < imgs.length; i++) {
+      var a = imgs[i].clientWidth * imgs[i].clientHeight;
+      if (a > area) { area = a; best = imgs[i]; }
+    }
+    return best;
+  }
+
+  // The currently displayed image of each product (both panels).
+  function getProductImages() {
+    var root = getRoot();
+    var panels = root.querySelectorAll(".relative.h-full.flex-1.overflow-auto.p-4");
+    var srcs = [];
+    for (var i = 0; i < panels.length && i < 2; i++) {
+      var img = panels[i].querySelector(".slide.selected img") || largestImg(panels[i]);
+      srcs.push(img ? img.src : null);
+    }
+    return srcs;
+  }
+
+  function buildCompare() {
+    compareEl = document.createElement("div");
+    compareEl.id = "spu-compare-overlay";
+    compareEl.innerHTML =
+      '<div class="spu-cmp-inner">' +
+      '  <img class="spu-cmp-img" data-side="a" />' +
+      '  <img class="spu-cmp-img" data-side="b" />' +
+      "</div>";
+    // Click anywhere closes it; clicking an image shouldn't re-trigger anything.
+    compareEl.addEventListener("click", closeCompare);
+    document.body.appendChild(compareEl);
+  }
+
+  function openCompare() {
+    if (!compareEl) buildCompare();
+    var s = getProductImages();
+    var imgs = compareEl.querySelectorAll(".spu-cmp-img");
+    for (var i = 0; i < imgs.length; i++) {
+      if (s[i]) { imgs[i].src = s[i]; imgs[i].style.display = ""; }
+      else { imgs[i].removeAttribute("src"); imgs[i].style.display = "none"; }
+    }
+    compareEl.style.display = "flex";
+    compareOpen = true;
+  }
+
+  function closeCompare() {
+    if (compareEl) compareEl.style.display = "none";
+    compareOpen = false;
+  }
+
+  function toggleCompare() {
+    if (compareOpen) closeCompare();
+    else openCompare();
+  }
+
+  // Scroll both product-info panels down a chunk (keeps them roughly in step
+  // while reading long descriptions).
+  function scrollProductsDown() {
+    var root = getRoot();
+    var panels = root.querySelectorAll(".relative.h-full.flex-1.overflow-auto.p-4");
+    for (var i = 0; i < panels.length; i++) {
+      var p = panels[i];
+      var amt = Math.round(p.clientHeight * 0.6);
+      try { p.scrollBy({ top: amt, behavior: "smooth" }); }
+      catch (e) { p.scrollTop += amt; }
+    }
+  }
+
+  // On entering a page the site selects the top-left cell, but work starts on
+  // the Local Confirm column. Move the selection there if it isn't already.
+  function ensureLocalConfirmSelected() {
+    var root = getRoot();
+    var active = root.querySelector('.tabulator-cell[data-range="0"]') ||
+      root.querySelector(".tabulator-cell.tabulator-range-selected");
+    if (!active) return;
+    if (active.getAttribute("tabulator-field") === "local_confirm") return;
+    var rowEl = active.closest(".tabulator-row");
+    var lc = (rowEl && rowEl.querySelector('.tabulator-cell[tabulator-field="local_confirm"]')) ||
+      root.querySelector('.tabulator-row .tabulator-cell[tabulator-field="local_confirm"]');
+    if (!lc) return;
+    lc.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+    lc.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, composed: true }));
+  }
+
+  // Intercept clicks on a product's main image so our side-by-side compare
+  // opens instead of the site's single-image modal.
+  function onImageClickCapture(e) {
+    if (!active || !settings.enabled) return;
+    var path = e.composedPath ? e.composedPath() : null;
+    var t = (path && path[0]) || e.target;
+    if (!t || t.tagName !== "IMG" || (t.clientWidth || 0) < 150) return; // ignore thumbnails
+    var root = getRoot();
+    var panels = root.querySelectorAll(".relative.h-full.flex-1.overflow-auto.p-4");
+    var inPanel = false;
+    for (var i = 0; i < panels.length; i++) { if (panels[i].contains(t)) { inPanel = true; break; } }
+    if (!inPanel) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    openCompare();
+  }
+
   function reflectCurrentValue() {
     var val = readActiveValue();
     if (isUnset(val)) {
@@ -834,6 +984,13 @@
   // ======================================================================
   function onKeyDown(e) {
     if (!active || !settings.enabled) return;
+    // Escape always closes the compare overlay if it's open.
+    if (compareOpen && e.key === "Escape") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closeCompare();
+      return;
+    }
     if (document.activeElement === customInput) return; // handled by the input's own listener
     if (isEditable(deepActiveElement())) return; // don't remap while typing in native fields
 
@@ -856,6 +1013,18 @@
       e.preventDefault();
       e.stopImmediatePropagation();
       moveOption(1);
+    } else if (keyIn(kb.submitNext, k)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      submitAndNext();
+    } else if (keyIn(kb.enlarge, k)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      toggleCompare();
+    } else if (keyIn(kb.scrollDown, k)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      scrollProductsDown();
     }
   }
 
@@ -960,6 +1129,8 @@
   // The SPU app swallows keydown at window-capture (stopPropagation), so a
   // document-level listener never sees W/S/A/D. Listen on window capture too.
   window.addEventListener("keydown", onKeyDown, true);
+  // Intercept product-image clicks (capture) to open our side-by-side compare.
+  window.addEventListener("click", onImageClickCapture, true);
   loadSettings(function () {
     applyActivation();
   });
