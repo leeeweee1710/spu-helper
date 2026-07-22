@@ -1036,6 +1036,233 @@
   }
 
   // ======================================================================
+  // KPI work-day timer (shown next to "Active Time" in the header)
+  // ======================================================================
+  var LUNCH_START = 12 * 60 + 30; // 12:30
+  var LUNCH_END = 13 * 60 + 30;   // 13:30
+  var HARD_END = 18 * 60 + 30;    // 18:30 - latest possible leave time
+  var kpiEl = null, kpiChipEl = null, kpiPctEl = null, kpiPanelEl = null, kpiTimer = null;
+  var kpiOpen = false, kpiDocClickBound = false;
+  var kpiSettings = { mode: "full", startMin: 9 * 60 };
+
+  function kpiTodayStr() {
+    var d = new Date();
+    return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+  }
+  function mmToStr(m) {
+    m = ((Math.round(m) % 1440) + 1440) % 1440;
+    var h = Math.floor(m / 60), mm = m % 60;
+    return (h < 10 ? "0" : "") + h + ":" + (mm < 10 ? "0" : "") + mm;
+  }
+  function strToMm(s) {
+    var p = (s || "").split(":");
+    var h = parseInt(p[0], 10), m = parseInt(p[1], 10);
+    if (isNaN(h) || isNaN(m)) return null;
+    return h * 60 + m;
+  }
+  function kpiOverlap(a, b, c, d) { return Math.max(0, Math.min(b, d) - Math.max(a, c)); }
+  function kpiWorkingMin(a, b) {
+    if (b <= a) return 0;
+    return (b - a) - kpiOverlap(a, b, LUNCH_START, LUNCH_END);
+  }
+  // Start/leave times (minutes since midnight) for the selected mode.
+  function kpiSchedule() {
+    var s, e;
+    if (kpiSettings.mode === "morningOff") { s = 14 * 60; e = s + 4 * 60; }        // arrive 2PM, 4h
+    else if (kpiSettings.mode === "afternoonOff") { s = kpiSettings.startMin; e = Math.min(s + 4 * 60, HARD_END); }
+    else { s = kpiSettings.startMin; e = Math.min(s + 9 * 60, HARD_END); }         // full day: 9h, capped 18:30
+    return { s: s, e: e };
+  }
+  function kpiPercent(nowMin) {
+    var sch = kpiSchedule();
+    var total = kpiWorkingMin(sch.s, sch.e);
+    if (total <= 0) return 0;
+    var n = Math.max(sch.s, Math.min(nowMin, sch.e));
+    var p = kpiWorkingMin(sch.s, n) / total * 100;
+    return p < 0 ? 0 : p > 100 ? 100 : p;
+  }
+  function kpiNowMin() {
+    var d = new Date();
+    return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+  }
+
+  function loadKpi(cb) {
+    try {
+      chrome.storage.sync.get({ kpiSettings: null }, function (r) {
+        var s = r && r.kpiSettings;
+        if (s && s.date === kpiTodayStr() && typeof s.startMin === "number" && s.mode) {
+          kpiSettings = { mode: s.mode, startMin: s.startMin };
+        } else {
+          kpiSettings = { mode: "full", startMin: 9 * 60 }; // reset each new day
+        }
+        cb && cb();
+      });
+    } catch (e) { cb && cb(); }
+  }
+  function saveKpi() {
+    try {
+      chrome.storage.sync.set({
+        kpiSettings: { mode: kpiSettings.mode, startMin: kpiSettings.startMin, date: kpiTodayStr() },
+      });
+    } catch (e) {}
+  }
+
+  function findActiveTimeBlock() {
+    var all = document.querySelectorAll("body *");
+    for (var i = 0; i < all.length; i++) {
+      var e = all[i];
+      if (e.children.length === 0 && /Active Time/.test(e.textContent || "")) {
+        var span = e.parentElement;                 // span.ant-typography
+        return (span && span.parentElement) || span || e; // the wrapping block
+      }
+    }
+    return null;
+  }
+
+  function buildKpi() {
+    kpiEl = document.createElement("span");
+    kpiEl.id = "spu-kpi";
+    kpiEl.style.cssText =
+      "position:relative;display:inline-flex;align-items:center;margin-left:16px;vertical-align:middle;" +
+      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;";
+    var chip = document.createElement("button");
+    chip.type = "button";
+    chip.style.cssText =
+      "display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border:1px solid #2975dd;" +
+      "border-radius:12px;background:#eef5ff;color:#1a4b8f;font-size:13px;font-weight:700;cursor:pointer;line-height:1.4;";
+    chip.innerHTML =
+      '<span style="font-weight:600;color:#5a7fb0;">Day</span>' +
+      '<span id="spu-kpi-pct">--%</span>' +
+      '<span style="color:#5a7fb0;font-size:10px;">▾</span>';
+    kpiEl.appendChild(chip);
+    kpiChipEl = chip;
+    kpiPctEl = chip.querySelector("#spu-kpi-pct");
+
+    // The panel lives at the body level (not nested in the site header) so its
+    // z-index wins over the Local Confirm panel instead of being trapped in the
+    // header's stacking context.
+    kpiPanelEl = document.createElement("div");
+    kpiPanelEl.style.cssText =
+      "display:none;position:fixed;z-index:2147483646;background:#fff;" +
+      "border:1px solid #cfd8e3;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);padding:12px;" +
+      "width:240px;color:#1f2937;font-size:13px;font-weight:500;cursor:default;text-align:left;" +
+      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;";
+    kpiPanelEl.innerHTML =
+      '<div style="font-weight:700;margin-bottom:8px;">Work day</div>' +
+      '<div id="spu-kpi-modes" style="display:flex;gap:4px;margin-bottom:10px;"></div>' +
+      '<label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+      '<span>Start work</span>' +
+      '<input type="time" id="spu-kpi-start" style="padding:3px 6px;border:1px solid #cfd8e3;border-radius:6px;font-size:13px;" />' +
+      "</label>" +
+      '<div id="spu-kpi-info" style="color:#555;font-size:12px;line-height:1.5;"></div>';
+    document.body.appendChild(kpiPanelEl);
+
+    chip.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      kpiOpen = !kpiOpen;
+      kpiPanelEl.style.display = kpiOpen ? "block" : "none";
+      if (kpiOpen) { renderKpiPanel(); positionKpiPanel(); }
+    });
+
+    var modes = [["full", "Full day"], ["morningOff", "Morning off"], ["afternoonOff", "Afternoon off"]];
+    var modesWrap = kpiPanelEl.querySelector("#spu-kpi-modes");
+    modes.forEach(function (m) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.dataset.mode = m[0];
+      b.textContent = m[1];
+      b.style.cssText =
+        "flex:1;padding:5px 2px;border:1px solid #cfd8e3;border-radius:6px;background:#f4f6f8;" +
+        "font-size:11px;font-weight:600;cursor:pointer;color:#2c3e50;";
+      b.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        kpiSettings.mode = m[0];
+        saveKpi();
+        renderKpiPanel();
+        updateKpi();
+      });
+      modesWrap.appendChild(b);
+    });
+
+    var startInput = kpiPanelEl.querySelector("#spu-kpi-start");
+    startInput.addEventListener("change", function () {
+      var v = strToMm(startInput.value);
+      if (v != null) { kpiSettings.startMin = v; saveKpi(); renderKpiPanel(); updateKpi(); }
+    });
+    kpiPanelEl.addEventListener("click", function (e) { e.stopPropagation(); });
+  }
+
+  function renderKpiPanel() {
+    if (!kpiPanelEl) return;
+    var btns = kpiPanelEl.querySelectorAll("#spu-kpi-modes button");
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].dataset.mode === kpiSettings.mode;
+      btns[i].style.background = on ? "#2975dd" : "#f4f6f8";
+      btns[i].style.color = on ? "#fff" : "#2c3e50";
+      btns[i].style.borderColor = on ? "#2975dd" : "#cfd8e3";
+    }
+    var startInput = kpiPanelEl.querySelector("#spu-kpi-start");
+    var morn = kpiSettings.mode === "morningOff";
+    startInput.value = mmToStr(morn ? 14 * 60 : kpiSettings.startMin);
+    startInput.disabled = morn;
+    startInput.style.opacity = morn ? "0.5" : "1";
+    var sch = kpiSchedule();
+    kpiPanelEl.querySelector("#spu-kpi-info").innerHTML =
+      "Arrive <b>" + mmToStr(sch.s) + "</b> · Leave <b>" + mmToStr(sch.e) + "</b><br>" +
+      "Working: <b>" + (kpiWorkingMin(sch.s, sch.e) / 60).toFixed(1) + "h</b> (lunch 12:30–13:30)";
+  }
+
+  function ensureKpiInserted() {
+    if (!kpiEl) buildKpi();
+    if (kpiEl.isConnected) return;
+    var block = findActiveTimeBlock();
+    if (block && block.parentNode) {
+      try { block.parentNode.insertBefore(kpiEl, block.nextSibling); } catch (e) {}
+    }
+  }
+
+  // Place the (body-level) panel just under the chip.
+  function positionKpiPanel() {
+    if (!kpiChipEl || !kpiPanelEl) return;
+    var rect = kpiChipEl.getBoundingClientRect();
+    var pw = kpiPanelEl.offsetWidth || 240;
+    var left = Math.max(8, Math.min(rect.left, window.innerWidth - 8 - pw));
+    kpiPanelEl.style.left = left + "px";
+    kpiPanelEl.style.top = rect.bottom + 6 + "px";
+  }
+
+  function updateKpi() {
+    ensureKpiInserted();
+    if (kpiPctEl) kpiPctEl.textContent = kpiPercent(kpiNowMin()).toFixed(1) + "%";
+    if (kpiOpen) positionKpiPanel();
+  }
+
+  function setupKpi() {
+    if (kpiTimer) return;
+    loadKpi(function () {
+      ensureKpiInserted();
+      updateKpi();
+      renderKpiPanel();
+    });
+    kpiTimer = setInterval(updateKpi, 1000);
+    if (!kpiDocClickBound) {
+      document.addEventListener("click", function () {
+        if (kpiOpen) { kpiOpen = false; if (kpiPanelEl) kpiPanelEl.style.display = "none"; }
+      });
+      kpiDocClickBound = true;
+    }
+  }
+
+  function teardownKpi() {
+    if (kpiTimer) { clearInterval(kpiTimer); kpiTimer = null; }
+    if (kpiEl && kpiEl.parentNode) kpiEl.parentNode.removeChild(kpiEl);
+    if (kpiPanelEl && kpiPanelEl.parentNode) kpiPanelEl.parentNode.removeChild(kpiPanelEl);
+    kpiOpen = false;
+  }
+
+  // ======================================================================
   // Activation lifecycle
   // ======================================================================
   function isPairPage() {
@@ -1057,6 +1284,7 @@
     if (!panelEl) buildPanel();
     panelEl.style.display = "flex";
     toastEl.style.display = "block";
+    setupKpi();
     waitForTable(function () {
       handleRowChange(true);
       focusTable();
@@ -1072,6 +1300,7 @@
     active = false;
     if (panelEl) panelEl.style.display = "none";
     if (toastEl) toastEl.style.display = "none";
+    teardownKpi();
   }
 
   function applyActivation() {
