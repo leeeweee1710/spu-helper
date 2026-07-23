@@ -318,22 +318,35 @@
   var SENT = ""; // segment separator - never matches real text
   var SMART = { styleId: "spu-smart-hint-style", hideId: "spu-hide-native-style", names: [] };
 
-  // A whole field identical on both sides (e.g. same model name) -> yellow,
-  // echoing the native "these are the same" cue. Partial matches cycle
-  // through distinct colours, longest first (so the title run tends to red).
-  var YELLOW = "rgba(255, 205, 51, 0.7)";
-  var COLORS = [
-    "rgba(255, 82, 82, 0.50)",   // red
-    "rgba(83, 201, 120, 0.50)",  // green
-    "rgba(66, 165, 245, 0.50)",  // blue
-    "rgba(255, 145, 60, 0.55)",  // orange
-    "rgba(186, 104, 240, 0.50)", // purple
-    "rgba(38, 198, 218, 0.50)",  // teal
-    "rgba(240, 98, 176, 0.50)",  // pink
-    "rgba(122, 173, 60, 0.50)",  // lime
-    "rgba(120, 144, 156, 0.50)", // blue-grey
+  // Match colours ordered by salience. Matches are assigned these in priority
+  // order (model<->model first), so the most important hints stand out; the
+  // long tail (usually spec/description noise) falls back to a muted grey.
+  var PRIORITY_COLORS = [
+    "rgba(255, 205, 51, 0.75)",  // yellow
+    "rgba(255, 82, 82, 0.55)",   // red
+    "rgba(255, 145, 60, 0.60)",  // orange
+    "rgba(66, 165, 245, 0.55)",  // blue
+    "rgba(83, 201, 120, 0.55)",  // green
+    "rgba(186, 104, 240, 0.55)", // purple
+    "rgba(38, 198, 218, 0.55)",  // teal
+    "rgba(240, 98, 176, 0.55)",  // pink
+    "rgba(122, 173, 60, 0.55)",  // lime
   ];
-  var DIM_COLOR = "rgba(255, 170, 20, 0.6)"; // matched product dimensions
+  var MUTED_COLOR = "rgba(150, 160, 170, 0.40)";
+  var DIM_COLOR = "rgba(255, 170, 20, 0.65)"; // matched product dimensions
+
+  // Field labels -> canonical field type (drives match priority).
+  var FIELD_LABELS = {
+    "title": "title",
+    "model name": "model",
+    "variations": "variations",
+    "product description": "description",
+    "specification section": "spec",
+  };
+  function labelField(trimmed) {
+    var key = trimmed.replace(/[:：]\s*$/, "").trim().toLowerCase();
+    return FIELD_LABELS[key] || null;
+  }
 
   // Structural UI labels to keep out of the matcher.
   var STOPLIST = {
@@ -384,49 +397,75 @@
   }
 
   // Build a side's original text, a case/width-folded copy (same length, for
-  // matching), and a char-index -> {node, offset} map. Text nodes in the same
-  // field are concatenated (so matches can cross the native highlight spans);
-  // a sentinel separates different fields.
+  // matching), a char-index -> {node, offset} map, AND a per-char field type.
+  // Text nodes in the same field are concatenated (so matches can cross the
+  // native highlight spans); a sentinel separates different fields. Field
+  // labels ("Model Name", "Title", ...) switch the current field, and
+  // variation VALUES (text after " : ") are dropped so they don't echo the
+  // model name.
+  // matching), a char-index -> {node, offset} map, AND a per-char field type.
+  // Text nodes in the same field are concatenated (so matches can cross the
+  // native highlight spans); a sentinel separates different fields. Field
+  // labels ("Model Name", "Title", ...) switch the current field, and
+  // variation VALUES (text after " : ") are dropped so they don't echo the
+  // model name.
   function extractSide(panel) {
-    var chars = [], norm = [], map = [];
+    var chars = [], norm = [], map = [], fields = [];
+    var chars = [], norm = [], map = [], fields = [];
     var walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT, {
       acceptNode: function (node) {
         var t = node.nodeValue;
         if (!t || !t.trim()) return NodeFilter.FILTER_REJECT;
         var el = node.parentElement;
-        if (el && el.closest(".ant-typography-secondary")) return NodeFilter.FILTER_REJECT;
         if (el && el.closest(".highlight-tag")) return NodeFilter.FILTER_REJECT;
-        var trimmed = t.trim();
-        if (STOPLIST[trimmed.replace(/[:：]$/, "")]) return NodeFilter.FILTER_REJECT;
-        if (/^\d+\s*(of|\/)\s*\d+$/i.test(trimmed)) return NodeFilter.FILTER_REJECT; // "1 of 6" image counter
+        if (/^\d+\s*(of|\/)\s*\d+$/i.test(t.trim())) return NodeFilter.FILTER_REJECT; // "1 of 6"
+        if (/^\d+\s*(of|\/)\s*\d+$/i.test(t.trim())) return NodeFilter.FILTER_REJECT; // "1 of 6"
         return NodeFilter.FILTER_ACCEPT;
       },
     });
-    var prevGroup = null;
+    var prevGroup = null, currentField = "other";
+    var prevGroup = null, currentField = "other";
     while (walker.nextNode()) {
       var node = walker.currentNode;
+      var trimmed = node.nodeValue.trim();
+      var lf = labelField(trimmed);
+      if (lf) { currentField = lf; continue; }        // major label -> switch field
+      var trimmed = node.nodeValue.trim();
+      var lf = labelField(trimmed);
+      if (lf) { currentField = lf; continue; }        // major label -> switch field
       var pe = node.parentElement;
+      if (pe && pe.closest(".ant-typography-secondary")) continue; // sub-label
+      if (STOPLIST[trimmed.replace(/[:：]$/, "")]) continue;        // structural
+      if (pe && pe.closest(".ant-typography-secondary")) continue; // sub-label
+      if (STOPLIST[trimmed.replace(/[:：]$/, "")]) continue;        // structural
       var group = (pe && pe.closest(".ant-typography")) || pe;
       if (prevGroup !== null && group !== prevGroup) {
-        chars.push(SENT); norm.push(SENT); map.push(null);
+        chars.push(SENT); norm.push(SENT); map.push(null); fields.push(null);
+        chars.push(SENT); norm.push(SENT); map.push(null); fields.push(null);
       }
       prevGroup = group;
       var s = node.nodeValue;
+      if (currentField === "variations") {
+        // Keep only the variation label (text before " : "); the value echoes
+        // the model name.
+        var ci = s.indexOf(" : ");
+        if (ci === -1) ci = s.indexOf("：");
+        if (ci !== -1) s = s.slice(0, ci);
+      }
+      if (currentField === "variations") {
+        // Keep only the variation label (text before " : "); the value echoes
+        // the model name.
+        var ci = s.indexOf(" : ");
+        if (ci === -1) ci = s.indexOf("：");
+        if (ci !== -1) s = s.slice(0, ci);
+      }
       for (var i = 0; i < s.length; i++) {
-        chars.push(s[i]); norm.push(foldChar(s[i])); map.push({ node: node, offset: i });
+        chars.push(s[i]); norm.push(foldChar(s[i])); map.push({ node: node, offset: i }); fields.push(currentField);
+        chars.push(s[i]); norm.push(foldChar(s[i])); map.push({ node: node, offset: i }); fields.push(currentField);
       }
     }
-    return { text: chars.join(""), norm: norm.join(""), map: map };
-  }
-
-  // Set of whole-field strings on a side (segments between sentinels).
-  function fieldSet(text) {
-    var set = Object.create(null);
-    text.split(SENT).forEach(function (seg) {
-      var t = seg.trim();
-      if (t.length >= 2) set[t] = 1;
-    });
-    return set;
+    return { text: chars.join(""), norm: norm.join(""), map: map, fields: fields };
+    return { text: chars.join(""), norm: norm.join(""), map: map, fields: fields };
   }
 
   // Distinct maximal common substrings (length >= minLen) between A and B.
@@ -514,18 +553,71 @@
     dr.forEach(function (d) { if (shared[d.canon]) { addRange(right, d.start, d.end, "dim", buckets); occupy(rOcc, d.start, d.end - d.start); } });
   }
 
-  // Mark substring matches longest-first. A match is only highlighted if it has
-  // a trimmed, free occurrence on BOTH sides (so half-word matches are dropped).
-  function markMatches(left, right, matches, colorOf, buckets, lOcc, rOcc, minLen) {
+  // Importance of a field pairing (lower = more important). model<->model is
+  // the strongest signal, then title<->title, then model/title combos, then
+  // anything touching model/title, then the rest (spec/description/etc.).
+  function pairTier(fa, fb) {
+    if (fa === "model" && fb === "model") return 1;
+    if (fa === "title" && fb === "title") return 2;
+    if ((fa === "model" && fb === "title") || (fa === "title" && fb === "model")) return 3;
+    if (fa === "model" || fb === "model" || fa === "title" || fb === "title") return 4;
+    return 5;
+  }
+  function fieldsOf(occs, fieldsArr) {
+    var set = {};
+    occs.forEach(function (r) { var f = fieldsArr[r[0]]; if (f) set[f] = 1; });
+    return Object.keys(set);
+  }
+  // If a match appears in the model field, drop its variation occurrences (they
+  // just echo the model name) so multi-to-multi groups don't mix the two.
+  function dropRedundantVariations(occs, fieldsArr) {
+    var hasModel = occs.some(function (r) { return fieldsArr[r[0]] === "model"; });
+    if (!hasModel) return occs;
+    return occs.filter(function (r) { return fieldsArr[r[0]] !== "variations"; });
+  }
+  function bestTier(lFields, rFields) {
+    var best = 99;
+    for (var i = 0; i < lFields.length; i++) {
+      for (var j = 0; j < rFields.length; j++) {
+        var t = pairTier(lFields[i], rFields[j]);
+        if (t < best) best = t;
+      }
+    }
+    return best;
+  }
+
+  // Gather viable matches (trimmed, present on both sides), rank them by field
+  // importance then length, and paint them in that order so the most important
+  // hint (model<->model) gets the most salient colour.
+  function markMatches(left, right, matches, buckets, lOcc, rOcc, minLen) {
+    var viable = [];
     for (var mi = 0; mi < matches.length; mi++) {
       var s = matches[mi];
-      var lo = trimmedOccurrences(left.norm, s, minLen).filter(function (r) { return rangeFree(lOcc, r[0], r[1] - r[0]); });
-      var ro = trimmedOccurrences(right.norm, s, minLen).filter(function (r) { return rangeFree(rOcc, r[0], r[1] - r[0]); });
+      var lo = trimmedOccurrences(left.norm, s, minLen);
+      var ro = trimmedOccurrences(right.norm, s, minLen);
       if (!lo.length || !ro.length) continue;
-      var key = colorOf[s];
+      lo = dropRedundantVariations(lo, left.fields);
+      ro = dropRedundantVariations(ro, right.fields);
+      if (!lo.length || !ro.length) continue;
+      var tier = bestTier(fieldsOf(lo, left.fields), fieldsOf(ro, right.fields));
+      viable.push({ lo: lo, ro: ro, tier: tier, len: s.length });
+    }
+    // Colour rank: most important (model<->model, then longer) gets the most
+    // salient colour.
+    var ranked = viable.slice().sort(function (a, b) { return a.tier - b.tier || b.len - a.len; });
+    ranked.forEach(function (v, i) { v.colorIdx = i; });
+    // Placement: LONGEST first, so a big block (e.g. an identical title) claims
+    // its whole span before short high-priority matches from other fields can
+    // fragment it. Colour is independent of this order.
+    viable.sort(function (a, b) { return b.len - a.len || a.tier - b.tier; });
+    viable.forEach(function (v) {
+      var lo = v.lo.filter(function (r) { return rangeFree(lOcc, r[0], r[1] - r[0]); });
+      var ro = v.ro.filter(function (r) { return rangeFree(rOcc, r[0], r[1] - r[0]); });
+      if (!lo.length || !ro.length) return;
+      var key = "p" + v.colorIdx;
       lo.forEach(function (r) { addRange(left, r[0], r[1], key, buckets); occupy(lOcc, r[0], r[1] - r[0]); });
       ro.forEach(function (r) { addRange(right, r[0], r[1], key, buckets); occupy(rOcc, r[0], r[1] - r[0]); });
-    }
+    });
   }
 
   function clearSmartHints() {
@@ -563,21 +655,21 @@
     // Dimensions first (order-independent) so substring matching won't split them.
     markDims(left, right, buckets, lOcc, rOcc);
 
-    // Substring matches: full-field-identical -> yellow; others cycle COLORS.
+    // Substring matches, ranked by field importance (model<->model first).
     var matches = computeMatches(left.norm, right.norm, minLen);
-    var lf = fieldSet(left.norm), rf = fieldSet(right.norm);
-    var colorOf = {}, other = 0;
-    matches.forEach(function (s) {
-      var t = s.trim();
-      colorOf[s] = lf[t] && rf[t] ? "y" : "c" + (other++ % COLORS.length);
-    });
-    markMatches(left, right, matches, colorOf, buckets, lOcc, rOcc, minLen);
+    markMatches(left, right, matches, buckets, lOcc, rOcc, minLen);
 
     clearSmartHints();
     var css = "";
     Object.keys(buckets).forEach(function (key) {
+      var color;
+      if (key === "dim") {
+        color = DIM_COLOR;
+      } else {
+        var idx = parseInt(key.slice(1), 10); // "p<idx>"
+        color = idx < PRIORITY_COLORS.length ? PRIORITY_COLORS[idx] : MUTED_COLOR;
+      }
       var name = "spu-hl-" + key;
-      var color = key === "dim" ? DIM_COLOR : key === "y" ? YELLOW : COLORS[parseInt(key.slice(1), 10) % COLORS.length];
       var hl = new Highlight();
       buckets[key].forEach(function (rg) { hl.add(rg); });
       CSS.highlights.set(name, hl);
