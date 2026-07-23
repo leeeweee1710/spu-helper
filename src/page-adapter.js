@@ -680,14 +680,59 @@
     return { ok: true };
   }
 
+  // Locate the native "Highlights & Hints" toggle (label + ant-switch button).
+  function nativeToggle() {
+    var root = getRoot();
+    var all = root.querySelectorAll("*");
+    for (var i = 0; i < all.length; i++) {
+      var e = all[i];
+      if (e.children.length === 0 && /Highlights & Hints/.test(e.textContent || "")) {
+        var container = e.parentElement;
+        var sw = container && container.querySelector('button[role="switch"]');
+        return { container: container, sw: sw };
+      }
+    }
+    return null;
+  }
+
+  // Turn the native highlighter OFF at the source (so it stops splitting the
+  // product text into <span data-start> elements) and hide its toggle. The
+  // toggle only exists in the first product, so hiding it also re-aligns the
+  // two panels. Returns true if we just flipped it off (DOM will re-render).
+  function disableNativeHighlights() {
+    var t = nativeToggle();
+    if (!t) return false;
+    var flipped = false;
+    if (t.sw && t.sw.getAttribute("aria-checked") === "true") {
+      t.sw.click();
+      flipped = true;
+    }
+    if (t.container) t.container.style.display = "none";
+    return flipped;
+  }
+
+  function restoreNativeHighlights() {
+    var t = nativeToggle();
+    if (!t) return;
+    if (t.container) t.container.style.display = "";
+    if (t.sw && t.sw.getAttribute("aria-checked") === "false") t.sw.click();
+  }
+
   function smartHints(payload) {
     if (payload && payload.enabled) {
+      var flipped = disableNativeHighlights();
       var res = applySmartHints(payload.minLen);
       hideNativeHints(res.ok); // only hide native if our highlighting worked
+      // Flipping the toggle re-renders the text (un-splits it) asynchronously;
+      // re-run once the DOM settles so ranges land on the clean nodes.
+      if (flipped && res.ok) {
+        setTimeout(function () { applySmartHints(payload.minLen); }, 120);
+      }
       return res;
     }
     clearSmartHints();
     hideNativeHints(false);
+    restoreNativeHighlights();
     return { ok: true, disabled: true };
   }
 
