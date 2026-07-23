@@ -35,14 +35,14 @@
     enabled: true,
     autoKeyY: true,
     smartHints: true, // replace native hints with our exact-match highlighter
-    smartHintsMinLen: 4, // shortest matched run to highlight
+    smartHintsMinLen: 3, // shortest matched run to highlight
     layoutSizes: null, // remembered native splitter sizes { w, h }
     // Each action maps to a LIST of keys (any of them triggers it).
     keybindings: {
-      next: ["w"],
-      prev: ["s"],
-      optionUp: ["a"],
-      optionDown: ["d"],
+      next: ["w", "i"],
+      prev: ["s", "k"],
+      optionUp: ["a", "j"],
+      optionDown: ["d", "l"],
       submitNext: ["\\"],
       enlarge: [" "],
       scrollDown: ["n", "c"],
@@ -995,6 +995,7 @@
     }
     if (document.activeElement === customInput) return; // handled by the input's own listener
     if (isEditable(deepActiveElement())) return; // don't remap while typing in native fields
+    if (e.ctrlKey || e.metaKey || e.altKey) return; // leave Ctrl/Cmd/Alt shortcuts (e.g. Ctrl+C) alone
 
     var k = e.key && e.key.length === 1 ? e.key.toLowerCase() : e.key;
     var kb = settings.keybindings;
