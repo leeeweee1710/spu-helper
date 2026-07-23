@@ -13,10 +13,15 @@ var DEFAULTS = {
     submitNext: ["\\"],
     enlarge: [" "],
     scrollDown: ["n", "c"],
+    gotoFirst: ["Home"],
+    gotoLast: ["End"],
   },
 };
 
-var ACTIONS = ["next", "prev", "optionUp", "optionDown", "submitNext", "enlarge", "scrollDown"];
+var ACTIONS = [
+  "next", "prev", "optionUp", "optionDown",
+  "submitNext", "enlarge", "scrollDown", "gotoFirst", "gotoLast",
+];
 
 var current = JSON.parse(JSON.stringify(DEFAULTS));
 var listeningAction = null; // which action is waiting for a keypress
@@ -30,6 +35,16 @@ var els = {
 };
 
 // ---- helpers ----------------------------------------------------------
+// Save immediately on any change and briefly flash "Saved".
+function persist() {
+  chrome.storage.sync.set(current, function () {
+    if (!els.status) return;
+    els.status.textContent = "Saved";
+    clearTimeout(persist._t);
+    persist._t = setTimeout(function () { els.status.textContent = ""; }, 900);
+  });
+}
+
 function displayKey(k) {
   if (!k) return "";
   if (k === " ") return "Space";
@@ -78,6 +93,7 @@ function renderKeys() {
           return y !== k;
         });
         renderKeys();
+        persist();
       });
       chip.appendChild(x);
       box.appendChild(chip);
@@ -112,6 +128,7 @@ document.addEventListener("keydown", function (e) {
   current.keybindings[listeningAction] = list;
   listeningAction = null;
   renderKeys();
+  persist();
 });
 
 // ---- persistence ------------------------------------------------------
@@ -131,12 +148,15 @@ function load() {
 
 els.enabled.addEventListener("change", function () {
   current.enabled = els.enabled.checked;
+  persist();
 });
 els.autoKeyY.addEventListener("change", function () {
   current.autoKeyY = els.autoKeyY.checked;
+  persist();
 });
 els.smartHints.addEventListener("change", function () {
   current.smartHints = els.smartHints.checked;
+  persist();
 });
 els.smartHintsMinLen.addEventListener("change", function () {
   var v = parseInt(els.smartHintsMinLen.value, 10);
@@ -144,21 +164,14 @@ els.smartHintsMinLen.addEventListener("change", function () {
   if (v > 20) v = 20;
   current.smartHintsMinLen = v;
   els.smartHintsMinLen.value = v;
-});
-
-document.getElementById("save").addEventListener("click", function () {
-  chrome.storage.sync.set(current, function () {
-    els.status.textContent = "Saved.";
-    setTimeout(function () {
-      els.status.textContent = "";
-    }, 1200);
-  });
+  persist();
 });
 
 document.getElementById("reset").addEventListener("click", function () {
   current = JSON.parse(JSON.stringify(DEFAULTS));
   listeningAction = null;
   render();
+  persist();
 });
 
 // Forget the remembered website splitter sizes (applies immediately).

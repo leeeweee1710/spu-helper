@@ -46,6 +46,8 @@
       submitNext: ["\\"],
       enlarge: [" "],
       scrollDown: ["n", "c"],
+      gotoFirst: ["Home"],
+      gotoLast: ["End"],
     },
   };
   var settings = JSON.parse(JSON.stringify(DEFAULTS));
@@ -1025,6 +1027,14 @@
       e.preventDefault();
       e.stopImmediatePropagation();
       scrollProductsDown();
+    } else if (keyIn(kb.gotoFirst, k)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      callAdapter("gotoRow", { which: "first" });
+    } else if (keyIn(kb.gotoLast, k)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      callAdapter("gotoRow", { which: "last" });
     }
   }
 

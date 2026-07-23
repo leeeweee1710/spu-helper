@@ -288,6 +288,28 @@
     return { ok: true };
   }
 
+  // Jump to the first / last row and select its Local Confirm cell. Scrolls
+  // the row into view (Tabulator virtualises rows) then clicks the cell.
+  function gotoRow(which) {
+    var table = findTable();
+    if (!table) return { ok: false, reason: "no-table" };
+    var rows;
+    try { rows = table.getRows(); } catch (e) { rows = null; }
+    if (!rows || !rows.length) return { ok: false, reason: "no-rows" };
+    var row = which === "last" ? rows[rows.length - 1] : rows[0];
+    try { table.scrollToRow(row, which === "last" ? "bottom" : "top", false); } catch (e) {}
+    setTimeout(function () {
+      try {
+        var el = row.getCell("local_confirm").getElement();
+        if (el) {
+          el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+          el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, composed: true }));
+        }
+      } catch (e) {}
+    }, 130);
+    return { ok: true };
+  }
+
   // ======================================================================
   // Smart hints: replace the native hint sidebar/highlights with our own
   // exact cross-product substring matcher (painted via the CSS Custom
@@ -311,6 +333,7 @@
     "rgba(122, 173, 60, 0.50)",  // lime
     "rgba(120, 144, 156, 0.50)", // blue-grey
   ];
+  var DIM_COLOR = "rgba(255, 170, 20, 0.6)"; // matched product dimensions
 
   // Structural UI labels to keep out of the matcher.
   var STOPLIST = {
@@ -433,30 +456,72 @@
     return arr;
   }
 
-  // Find non-overlapping occurrences (longest-first) of each match on a side
-  // and push their Ranges into per-colour buckets.
-  function markSide(side, matches, colorOf, buckets) {
-    var text = side.norm, map = side.map; // match on the folded copy
-    if (!text) return;
-    var occupied = new Uint8Array(text.length);
+  // ASCII alphanumeric (the folded copy is lower-case). CJK is NOT alnum, so
+  // the word-boundary rules below never apply to Chinese text.
+  function isAlnum(ch) {
+    return (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9");
+  }
+  function rangeFree(occ, i, L) { for (var k = i; k < i + L; k++) if (occ[k]) return false; return true; }
+  function occupy(occ, i, L) { for (var k = i; k < i + L; k++) occ[k] = 1; }
+  function addRange(side, start, end, key, buckets) {
+    var a = side.map[start], b = side.map[end - 1];
+    if (!a || !b) return;
+    try {
+      var range = document.createRange();
+      range.setStart(a.node, a.offset);
+      range.setEnd(b.node, b.offset + 1);
+      (buckets[key] || (buckets[key] = [])).push(range);
+    } catch (e) {}
+  }
+
+  // Occurrences of s in text, each trimmed so it doesn't slice an ASCII
+  // alphanumeric run at either end. "make" inside "maker" trims to nothing;
+  // "0 cm long" from "70 cm long" trims the leading "0" -> " cm long". CJK is
+  // never alnum, so Chinese matches are untouched.
+  function trimmedOccurrences(text, s, minLen) {
+    var L = s.length, out = [], from = 0, idx;
+    while ((idx = text.indexOf(s, from)) !== -1) {
+      from = idx + 1;
+      var start = idx, end = idx + L;
+      while (start < end && start > 0 && isAlnum(text.charAt(start)) && isAlnum(text.charAt(start - 1))) start++;
+      while (end > start && end < text.length && isAlnum(text.charAt(end - 1)) && isAlnum(text.charAt(end))) end--;
+      if (end - start >= minLen) out.push([start, end]);
+    }
+    return out;
+  }
+
+  // Product dimensions like "10x20x30", "30 * 10 * 20", "5×8" - order- and
+  // separator/space-insensitive: canonicalise to sorted numbers.
+  function findDims(norm) {
+    var re = /\d+(?:\.\d+)?(?:\s*[x×*]\s*\d+(?:\.\d+)?)+/g, res = [], m;
+    while ((m = re.exec(norm)) !== null) {
+      var nums = m[0].match(/\d+(?:\.\d+)?/g);
+      if (!nums || nums.length < 2) continue;
+      var canon = nums.map(Number).sort(function (a, b) { return a - b; }).join("x");
+      res.push({ start: m.index, end: m.index + m[0].length, canon: canon });
+    }
+    return res;
+  }
+  function markDims(left, right, buckets, lOcc, rOcc) {
+    var dl = findDims(left.norm), dr = findDims(right.norm);
+    if (!dl.length || !dr.length) return;
+    var setL = {}; dl.forEach(function (d) { setL[d.canon] = 1; });
+    var shared = {}; dr.forEach(function (d) { if (setL[d.canon]) shared[d.canon] = 1; });
+    dl.forEach(function (d) { if (shared[d.canon]) { addRange(left, d.start, d.end, "dim", buckets); occupy(lOcc, d.start, d.end - d.start); } });
+    dr.forEach(function (d) { if (shared[d.canon]) { addRange(right, d.start, d.end, "dim", buckets); occupy(rOcc, d.start, d.end - d.start); } });
+  }
+
+  // Mark substring matches longest-first. A match is only highlighted if it has
+  // a trimmed, free occurrence on BOTH sides (so half-word matches are dropped).
+  function markMatches(left, right, matches, colorOf, buckets, lOcc, rOcc, minLen) {
     for (var mi = 0; mi < matches.length; mi++) {
-      var s = matches[mi], L = s.length, from = 0, idx;
-      while ((idx = text.indexOf(s, from)) !== -1) {
-        from = idx + 1;
-        var free = true;
-        for (var k = idx; k < idx + L; k++) { if (occupied[k]) { free = false; break; } }
-        if (!free) continue;
-        var a = map[idx], b = map[idx + L - 1];
-        if (!a || !b) continue;
-        try {
-          var range = document.createRange();
-          range.setStart(a.node, a.offset);
-          range.setEnd(b.node, b.offset + 1);
-          var ci = colorOf[s];
-          (buckets[ci] || (buckets[ci] = [])).push(range);
-          for (var k2 = idx; k2 < idx + L; k2++) occupied[k2] = 1;
-        } catch (e) {}
-      }
+      var s = matches[mi];
+      var lo = trimmedOccurrences(left.norm, s, minLen).filter(function (r) { return rangeFree(lOcc, r[0], r[1] - r[0]); });
+      var ro = trimmedOccurrences(right.norm, s, minLen).filter(function (r) { return rangeFree(rOcc, r[0], r[1] - r[0]); });
+      if (!lo.length || !ro.length) continue;
+      var key = colorOf[s];
+      lo.forEach(function (r) { addRange(left, r[0], r[1], key, buckets); occupy(lOcc, r[0], r[1] - r[0]); });
+      ro.forEach(function (r) { addRange(right, r[0], r[1], key, buckets); occupy(rOcc, r[0], r[1] - r[0]); });
     }
   }
 
@@ -488,24 +553,28 @@
     minLen = minLen && minLen > 1 ? minLen : 4;
     var left = extractSide(panels[0]);
     var right = extractSide(panels[1]);
-    var matches = computeMatches(left.norm, right.norm, minLen);
+    var buckets = {};
+    var lOcc = new Uint8Array(left.norm.length);
+    var rOcc = new Uint8Array(right.norm.length);
 
-    // Colour assignment: full-field-identical -> yellow; others cycle COLORS.
+    // Dimensions first (order-independent) so substring matching won't split them.
+    markDims(left, right, buckets, lOcc, rOcc);
+
+    // Substring matches: full-field-identical -> yellow; others cycle COLORS.
+    var matches = computeMatches(left.norm, right.norm, minLen);
     var lf = fieldSet(left.norm), rf = fieldSet(right.norm);
     var colorOf = {}, other = 0;
     matches.forEach(function (s) {
       var t = s.trim();
       colorOf[s] = lf[t] && rf[t] ? "y" : "c" + (other++ % COLORS.length);
     });
-    var buckets = {};
-    markSide(left, matches, colorOf, buckets);
-    markSide(right, matches, colorOf, buckets);
+    markMatches(left, right, matches, colorOf, buckets, lOcc, rOcc, minLen);
 
     clearSmartHints();
     var css = "";
     Object.keys(buckets).forEach(function (key) {
       var name = "spu-hl-" + key;
-      var color = key === "y" ? YELLOW : COLORS[parseInt(key.slice(1), 10) % COLORS.length];
+      var color = key === "dim" ? DIM_COLOR : key === "y" ? YELLOW : COLORS[parseInt(key.slice(1), 10) % COLORS.length];
       var hl = new Highlight();
       buckets[key].forEach(function (rg) { hl.add(rg); });
       CSS.highlights.set(name, hl);
@@ -513,7 +582,7 @@
       css += "::highlight(" + name + "){background-color:" + color + ";border-radius:2px;}\n";
     });
     injectStyle(SMART.styleId, css);
-    return { ok: true, matches: matches.length };
+    return { ok: true };
   }
 
   function smartHints(payload) {
@@ -554,6 +623,8 @@
         commit(d.payload || {}).then(reply);
       } else if (d.action === "navigate") {
         reply(navigate((d.payload && d.payload.dir) || "down"));
+      } else if (d.action === "gotoRow") {
+        reply(gotoRow((d.payload && d.payload.which) || "first"));
       } else if (d.action === "smartHints") {
         reply(smartHints(d.payload || {}));
       } else if (d.action === "probe") {
