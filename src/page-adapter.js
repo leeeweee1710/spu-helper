@@ -372,10 +372,13 @@
   // Fold one char for matching: full-width -> half-width, then lower-case.
   // Always returns a single char so the folded string stays index-aligned
   // with the original (ranges map straight back to the real DOM offsets).
+  var CN_MAP = (typeof window !== "undefined" && window.SPU_CN_MAP) || {};
   function foldChar(c) {
     var code = c.charCodeAt(0);
     if (code === 0x3000) return " "; // ideographic space
     if (code >= 0xff01 && code <= 0xff5e) c = String.fromCharCode(code - 0xfee0);
+    // Canonicalise traditional Chinese to simplified so the two variants match.
+    if (CN_MAP[c]) return CN_MAP[c];
     var lc = c.toLowerCase();
     return lc.length === 1 ? lc : c;
   }
