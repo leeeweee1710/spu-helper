@@ -48,6 +48,7 @@
       scrollDown: ["n", "c"],
       gotoFirst: ["Home"],
       gotoLast: ["End"],
+      nextImage: ["e", "o"],
     },
   };
   var settings = JSON.parse(JSON.stringify(DEFAULTS));
@@ -913,6 +914,16 @@
     else openCompare();
   }
 
+  // Advance both products' image carousels to their next image (wrapping).
+  // Delegated to the MAIN-world adapter, which drives the carousel via its
+  // moveTo() API so the native enlarger does NOT open. Works whether or not
+  // the compare overlay is shown; if it's open, refresh it after the re-render.
+  function advanceImagePair() {
+    callAdapter("nextImagePair").then(function () {
+      if (compareOpen) setTimeout(function () { if (compareOpen) openCompare(); }, 140);
+    });
+  }
+
   // Scroll both product-info panels down a chunk (keeps them roughly in step
   // while reading long descriptions).
   function scrollProductsDown() {
@@ -1036,6 +1047,10 @@
       e.preventDefault();
       e.stopImmediatePropagation();
       callAdapter("gotoRow", { which: "last" });
+    } else if (keyIn(kb.nextImage, k)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      advanceImagePair();
     }
   }
 

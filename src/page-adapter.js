@@ -310,6 +310,46 @@
     return { ok: true };
   }
 
+  // The react-responsive-carousel instance that drives a product's main image
+  // (found by walking up the fiber from the .carousel-slider element).
+  function carouselInstance(sliderEl) {
+    var node = sliderEl, start = null;
+    while (node && !start) {
+      var fk = Object.keys(node).find(function (k) { return k.indexOf("__reactFiber$") === 0; });
+      if (fk) start = node[fk];
+      node = node.parentElement;
+    }
+    var f = start, guard = 300;
+    while (f && guard-- > 0) {
+      var sn = f.stateNode;
+      if (sn && typeof sn === "object" && typeof sn.moveTo === "function" && sn.state && "selectedItem" in sn.state) {
+        return sn;
+      }
+      f = f.return;
+    }
+    return null;
+  }
+
+  // Advance both products' main image carousels to the next image (wrapping),
+  // programmatically via moveTo() so it does NOT trigger the native enlarger
+  // (clicking a thumbnail would open the modal).
+  function nextImagePair() {
+    var root = getRoot();
+    var panels = root.querySelectorAll(".relative.h-full.flex-1.overflow-auto.p-4");
+    var moved = 0;
+    for (var i = 0; i < panels.length && i < 2; i++) {
+      var slider = panels[i].querySelector(".carousel-slider");
+      if (!slider) continue;
+      var inst = carouselInstance(slider);
+      if (!inst) continue;
+      var total = panels[i].querySelectorAll("li.thumb").length ||
+        panels[i].querySelectorAll(".carousel-slider .slide").length;
+      if (total < 2) continue;
+      try { inst.moveTo((inst.state.selectedItem + 1) % total); moved++; } catch (e) {}
+    }
+    return { ok: true, moved: moved };
+  }
+
   // ======================================================================
   // Smart hints: replace the native hint sidebar/highlights with our own
   // exact cross-product substring matcher (painted via the CSS Custom
@@ -403,14 +443,7 @@
   // labels ("Model Name", "Title", ...) switch the current field, and
   // variation VALUES (text after " : ") are dropped so they don't echo the
   // model name.
-  // matching), a char-index -> {node, offset} map, AND a per-char field type.
-  // Text nodes in the same field are concatenated (so matches can cross the
-  // native highlight spans); a sentinel separates different fields. Field
-  // labels ("Model Name", "Title", ...) switch the current field, and
-  // variation VALUES (text after " : ") are dropped so they don't echo the
-  // model name.
   function extractSide(panel) {
-    var chars = [], norm = [], map = [], fields = [];
     var chars = [], norm = [], map = [], fields = [];
     var walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT, {
       acceptNode: function (node) {
@@ -419,28 +452,20 @@
         var el = node.parentElement;
         if (el && el.closest(".highlight-tag")) return NodeFilter.FILTER_REJECT;
         if (/^\d+\s*(of|\/)\s*\d+$/i.test(t.trim())) return NodeFilter.FILTER_REJECT; // "1 of 6"
-        if (/^\d+\s*(of|\/)\s*\d+$/i.test(t.trim())) return NodeFilter.FILTER_REJECT; // "1 of 6"
         return NodeFilter.FILTER_ACCEPT;
       },
     });
-    var prevGroup = null, currentField = "other";
     var prevGroup = null, currentField = "other";
     while (walker.nextNode()) {
       var node = walker.currentNode;
       var trimmed = node.nodeValue.trim();
       var lf = labelField(trimmed);
       if (lf) { currentField = lf; continue; }        // major label -> switch field
-      var trimmed = node.nodeValue.trim();
-      var lf = labelField(trimmed);
-      if (lf) { currentField = lf; continue; }        // major label -> switch field
       var pe = node.parentElement;
-      if (pe && pe.closest(".ant-typography-secondary")) continue; // sub-label
-      if (STOPLIST[trimmed.replace(/[:：]$/, "")]) continue;        // structural
       if (pe && pe.closest(".ant-typography-secondary")) continue; // sub-label
       if (STOPLIST[trimmed.replace(/[:：]$/, "")]) continue;        // structural
       var group = (pe && pe.closest(".ant-typography")) || pe;
       if (prevGroup !== null && group !== prevGroup) {
-        chars.push(SENT); norm.push(SENT); map.push(null); fields.push(null);
         chars.push(SENT); norm.push(SENT); map.push(null); fields.push(null);
       }
       prevGroup = group;
@@ -452,19 +477,10 @@
         if (ci === -1) ci = s.indexOf("：");
         if (ci !== -1) s = s.slice(0, ci);
       }
-      if (currentField === "variations") {
-        // Keep only the variation label (text before " : "); the value echoes
-        // the model name.
-        var ci = s.indexOf(" : ");
-        if (ci === -1) ci = s.indexOf("：");
-        if (ci !== -1) s = s.slice(0, ci);
-      }
       for (var i = 0; i < s.length; i++) {
-        chars.push(s[i]); norm.push(foldChar(s[i])); map.push({ node: node, offset: i }); fields.push(currentField);
         chars.push(s[i]); norm.push(foldChar(s[i])); map.push({ node: node, offset: i }); fields.push(currentField);
       }
     }
-    return { text: chars.join(""), norm: norm.join(""), map: map, fields: fields };
     return { text: chars.join(""), norm: norm.join(""), map: map, fields: fields };
   }
 
@@ -765,6 +781,8 @@
         reply(navigate((d.payload && d.payload.dir) || "down"));
       } else if (d.action === "gotoRow") {
         reply(gotoRow((d.payload && d.payload.which) || "first"));
+      } else if (d.action === "nextImagePair") {
+        reply(nextImagePair());
       } else if (d.action === "smartHints") {
         reply(smartHints(d.payload || {}));
       } else if (d.action === "probe") {

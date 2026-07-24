@@ -15,12 +15,13 @@ var DEFAULTS = {
     scrollDown: ["n", "c"],
     gotoFirst: ["Home"],
     gotoLast: ["End"],
+    nextImage: ["e", "o"],
   },
 };
 
 var ACTIONS = [
   "next", "prev", "optionUp", "optionDown",
-  "submitNext", "enlarge", "scrollDown", "gotoFirst", "gotoLast",
+  "submitNext", "enlarge", "scrollDown", "gotoFirst", "gotoLast", "nextImage",
 ];
 
 var current = JSON.parse(JSON.stringify(DEFAULTS));
