@@ -426,10 +426,29 @@
   // Always returns a single char so the folded string stays index-aligned
   // with the original (ranges map straight back to the real DOM offsets).
   var CN_MAP = (typeof window !== "undefined" && window.SPU_CN_MAP) || {};
+  // Single-value CJK numerals -> the matching Arabic digit, so "二"/"两"/"兩"
+  // all match "2". Only 0-9 (one digit out) is listed; multi-digit numerals
+  // like 十/百/千 are omitted because foldChar must return one char to keep the
+  // folded string index-aligned with the DOM.
+  var NUM_MAP = {
+    "〇": "0", "零": "0", "○": "0",
+    "一": "1", "壹": "1",
+    "二": "2", "两": "2", "兩": "2", "贰": "2", "貳": "2",
+    "三": "3", "叁": "3", "參": "3", "参": "3",
+    "四": "4", "肆": "4",
+    "五": "5", "伍": "5",
+    "六": "6", "陆": "6", "陸": "6",
+    "七": "7", "柒": "7",
+    "八": "8", "捌": "8",
+    "九": "9", "玖": "9",
+  };
   function foldChar(c) {
     var code = c.charCodeAt(0);
     if (code === 0x3000) return " "; // ideographic space
     if (code >= 0xff01 && code <= 0xff5e) c = String.fromCharCode(code - 0xfee0);
+    // Fold CJK numerals to digits before the traditional->simplified pass so
+    // every variant form collapses to the same digit.
+    if (NUM_MAP[c]) return NUM_MAP[c];
     // Canonicalise traditional Chinese to simplified so the two variants match.
     if (CN_MAP[c]) return CN_MAP[c];
     var lc = c.toLowerCase();
@@ -543,6 +562,9 @@
       var start = idx, end = idx + L;
       while (start < end && start > 0 && isAlnum(text.charAt(start)) && isAlnum(text.charAt(start - 1))) start++;
       while (end > start && end < text.length && isAlnum(text.charAt(end - 1)) && isAlnum(text.charAt(end))) end--;
+      // Never let a highlight begin or end on whitespace.
+      while (start < end && /\s/.test(text.charAt(start))) start++;
+      while (end > start && /\s/.test(text.charAt(end - 1))) end--;
       if (end - start >= minLen) out.push([start, end]);
     }
     return out;
