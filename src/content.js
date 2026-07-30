@@ -363,8 +363,7 @@
     panelEl = document.createElement("div");
     panelEl.id = "spu-helper-panel";
     panelEl.innerHTML =
-      '<div class="spu-hdr">Local Confirm' +
-      '<span class="spu-hint">W/S · A/D</span></div>' +
+      '<div class="spu-hdr">Local Confirm</div>' +
       '<div class="spu-list" id="spu-list"></div>' +
       '<div class="spu-custom-wrap">' +
       '  <input id="spu-custom-input" type="text" placeholder="Type custom reason, Enter to key in" />' +
