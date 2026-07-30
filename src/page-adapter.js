@@ -310,6 +310,31 @@
     return { ok: true };
   }
 
+  // Where the selected row sits in the page's rows, so the caller can tell
+  // whether there is a next product to move to on this page.
+  function rowInfo() {
+    var table = findTable();
+    if (!table) return { ok: false, reason: "no-table" };
+    var rows;
+    try { rows = table.getRows(); } catch (e) { rows = null; }
+    if (!rows || !rows.length) return { ok: false, reason: "no-rows" };
+    var root = getRoot();
+    var active =
+      root.querySelector('.tabulator-cell[data-range="0"]') ||
+      root.querySelector(".tabulator-cell.tabulator-range-selected");
+    var rowEl = active && active.closest(".tabulator-row");
+    var idx = -1;
+    if (rowEl) {
+      for (var i = 0; i < rows.length; i++) {
+        var el = null;
+        try { el = rows[i].getElement(); } catch (e) {}
+        if (el === rowEl) { idx = i; break; }
+      }
+    }
+    if (idx < 0) return { ok: false, reason: "no-active-row", count: rows.length };
+    return { ok: true, index: idx, count: rows.length, isLast: idx === rows.length - 1 };
+  }
+
   // The react-responsive-carousel instance that drives a product's main image
   // (found by walking up the fiber from the .carousel-slider element).
   function carouselInstance(sliderEl) {
@@ -839,6 +864,8 @@
         reply(navigate((d.payload && d.payload.dir) || "down"));
       } else if (d.action === "gotoRow") {
         reply(gotoRow((d.payload && d.payload.which) || "first"));
+      } else if (d.action === "rowInfo") {
+        reply(rowInfo());
       } else if (d.action === "nextImagePair") {
         reply(nextImagePair());
       } else if (d.action === "resetImagePair") {

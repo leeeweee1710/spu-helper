@@ -5,6 +5,8 @@ var DEFAULTS = {
   autoKeyY: true,
   smartHints: true,
   smartHintsMinLen: 3,
+  autoNextOnClick: true,
+  autoNextOnCustom: true,
   keybindings: {
     next: ["w", "i"],
     prev: ["s", "k"],
@@ -30,6 +32,8 @@ var listeningAction = null; // which action is waiting for a keypress
 var els = {
   enabled: document.getElementById("enabled"),
   autoKeyY: document.getElementById("autoKeyY"),
+  autoNextOnClick: document.getElementById("autoNextOnClick"),
+  autoNextOnCustom: document.getElementById("autoNextOnCustom"),
   smartHints: document.getElementById("smartHints"),
   smartHintsMinLen: document.getElementById("smartHintsMinLen"),
   status: document.getElementById("status"),
@@ -71,6 +75,8 @@ function removeKeyEverywhere(k) {
 function render() {
   els.enabled.checked = !!current.enabled;
   els.autoKeyY.checked = !!current.autoKeyY;
+  els.autoNextOnClick.checked = !!current.autoNextOnClick;
+  els.autoNextOnCustom.checked = !!current.autoNextOnCustom;
   els.smartHints.checked = !!current.smartHints;
   els.smartHintsMinLen.value = current.smartHintsMinLen;
   renderKeys();
@@ -153,6 +159,14 @@ els.enabled.addEventListener("change", function () {
 });
 els.autoKeyY.addEventListener("change", function () {
   current.autoKeyY = els.autoKeyY.checked;
+  persist();
+});
+els.autoNextOnClick.addEventListener("change", function () {
+  current.autoNextOnClick = els.autoNextOnClick.checked;
+  persist();
+});
+els.autoNextOnCustom.addEventListener("change", function () {
+  current.autoNextOnCustom = els.autoNextOnCustom.checked;
   persist();
 });
 els.smartHints.addEventListener("change", function () {

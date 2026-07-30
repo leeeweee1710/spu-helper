@@ -36,6 +36,8 @@
     autoKeyY: true,
     smartHints: true, // replace native hints with our exact-match highlighter
     smartHintsMinLen: 3, // shortest matched run to highlight
+    autoNextOnClick: true, // clicking an option moves to the next product
+    autoNextOnCustom: true, // keying in a custom reason moves to the next product
     layoutSizes: null, // remembered native splitter sizes { w, h }
     // Each action maps to a LIST of keys (any of them triggers it).
     keybindings: {
@@ -538,8 +540,12 @@
       focusCustom();
       return;
     }
-    commit(opt.commit, opt.label);
-    if (fromClick) focusTable();
+    var done = commit(opt.commit, opt.label);
+    if (fromClick) {
+      focusTable();
+      // Clicking an option is a finished decision: move on to the next product.
+      if (settings.autoNextOnClick) done.then(advanceToNextProduct);
+    }
   }
 
   // Cycle through the options, wrapping around (Y <- option-up -> Custom).
@@ -551,19 +557,22 @@
     chooseOption(i, false);
   }
 
+  // Resolves true once the value is in the row, so callers can wait before
+  // navigating away (moving first would commit against the wrong row).
   function commit(payload, label) {
-    callAdapter("commit", payload).then(function (res) {
+    return callAdapter("commit", payload).then(function (res) {
       if (res && res.ok) {
         toast("Keyed in: " + (label || ""), true);
-      } else {
-        // Fallback: try editing the cell through the DOM.
-        var done = domCommitFallback(payload);
-        if (done) {
-          toast("Keyed in (fallback): " + (label || ""), true);
-        } else {
-          toast("Commit failed (" + (res && res.reason) + ")", false);
-        }
+        return true;
       }
+      // Fallback: try editing the cell through the DOM.
+      var done = domCommitFallback(payload);
+      if (done) {
+        toast("Keyed in (fallback): " + (label || ""), true);
+      } else {
+        toast("Commit failed (" + (res && res.reason) + ")", false);
+      }
+      return done;
     });
   }
 
@@ -617,9 +626,10 @@
       toast("Enter a reason first", false);
       return;
     }
-    commit({ local_confirm: VAL.N, remarks: text }, "Custom");
+    var done = commit({ local_confirm: VAL.N, remarks: text }, "Custom");
     customInput.value = "";
     focusTable();
+    if (settings.autoNextOnCustom) done.then(advanceToNextProduct);
   }
   function cancelCustom() {
     customInput.value = "";
@@ -644,6 +654,17 @@
   }
   function goPrev() {
     navigateRow("up");
+  }
+
+  // Auto-advance after an annotation. Stops on the last product of the page:
+  // turning the page is submit+next's job, never a side effect of keying in.
+  // `ok` is the commit result - a failed commit stays put so it can be retried.
+  function advanceToNextProduct(ok) {
+    if (ok === false) return;
+    callAdapter("rowInfo").then(function (info) {
+      if (info && info.ok && info.isLast) return; // last product on this page
+      goNext();
+    });
   }
 
   // A signature that identifies the current pair, so we only react to real
