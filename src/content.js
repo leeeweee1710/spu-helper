@@ -192,6 +192,9 @@
   // ======================================================================
   // Definitions extraction (top row)
   // ======================================================================
+  // Buttons in the hints card that are navigation buckets, not definitions.
+  var HINT_BUCKETS = { "all definitions": 1, keywords: 1, keyword: 1 };
+
   function extractDefinitions() {
     var defs = [];
     var root = getRoot();
@@ -210,16 +213,19 @@
         if (t) defs.push(t);
       });
     }
-    // Fallback: the "Hints" definitions button card.
+    // Fallback: the "Hints" definitions button card. Its generic buckets are
+    // NOT definitions - a product with none at all still lists "All Definitions
+    // [0]" and "keywords [0]", which would otherwise show up as an option.
     if (!defs.length) {
       var btns = root.querySelectorAll(
         ".ant-card-body button .ant-typography.capitalize, .ant-card-body button .ant-typography"
       );
       btns.forEach(function (sp) {
         var raw = (sp.textContent || "").trim();
-        if (!raw || /^all definitions/i.test(raw)) return;
+        if (!raw) return;
         var name = raw.replace(/\s*\[.*\]\s*$/, "").trim();
-        if (name) defs.push(name);
+        if (!name || HINT_BUCKETS[name.toLowerCase()]) return;
+        defs.push(name);
       });
     }
     // de-dupe, cap to keep the panel sane
@@ -251,6 +257,39 @@
     opts.push({ id: "LIVE_SELLING", label: "LIVE_SELLING", kind: "simple", commit: { local_confirm: VAL.LIVE_SELLING } });
     opts.push({ id: "CUSTOM", label: "Custom definition…", kind: "custom" });
     options = opts;
+  }
+
+  // The definition options currently on show, as a comparable key.
+  function definitionsKey() {
+    return options
+      .filter(function (o) { return o.kind === "definition"; })
+      .map(function (o) { return o.label; })
+      .join("");
+  }
+
+  // The product panel renders after the table row changes, so a row's
+  // definitions can appear a moment later than handleRowChange reads them.
+  // Re-extract a couple of times and re-render only when the set really
+  // changed, so stale options can't outlive the product they came from.
+  var DEF_RECHECKS = [400, 1200];
+  var defRecheckTimers = [];
+  function scheduleDefinitionsRecheck() {
+    defRecheckTimers.forEach(clearTimeout);
+    defRecheckTimers = DEF_RECHECKS.map(function (ms) {
+      return setTimeout(recheckDefinitions, ms);
+    });
+  }
+  function recheckDefinitions() {
+    // Don't yank the list around while a custom reason is being typed.
+    if (customInput && document.activeElement === customInput) return;
+    var before = definitionsKey();
+    buildOptions();
+    if (definitionsKey() === before) return;
+    renderList();
+    // Re-derive the highlight WITHOUT auto-keying: the row was already
+    // handled on the first pass, so nothing should be committed again.
+    var val = readActiveValue();
+    setSelected(isUnset(val) ? indexOfId("Y") : findOptionIndexByValue(val, readActiveRemarks()));
   }
 
   function findOptionIndexByValue(valueText, remarks) {
@@ -636,6 +675,7 @@
     refreshSmartHints();
     refreshCategoryTranslation();
     ensureLayoutObservers();
+    scheduleDefinitionsRecheck(); // definitions may still be rendering
     // Every new pair starts on its model (first) image.
     if (movedToNewPair) resetImagePair();
   }
