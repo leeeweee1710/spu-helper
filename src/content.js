@@ -1081,9 +1081,10 @@
   var LUNCH_START = 12 * 60 + 30; // 12:30
   var LUNCH_END = 13 * 60 + 30;   // 13:30
   var HARD_END = 18 * 60 + 30;    // 18:30 - latest possible leave time
+  var SLACK_DEFAULT = 15;         // minutes of settling in, twice a day
   var kpiEl = null, kpiChipEl = null, kpiPctEl = null, kpiPanelEl = null, kpiTimer = null;
   var kpiOpen = false, kpiDocClickBound = false;
-  var kpiSettings = { mode: "full", startMin: 9 * 60 };
+  var kpiSettings = { mode: "full", startMin: 9 * 60, slackMin: SLACK_DEFAULT };
 
   function kpiTodayStr() {
     var d = new Date();
@@ -1101,10 +1102,6 @@
     return h * 60 + m;
   }
   function kpiOverlap(a, b, c, d) { return Math.max(0, Math.min(b, d) - Math.max(a, c)); }
-  function kpiWorkingMin(a, b) {
-    if (b <= a) return 0;
-    return (b - a) - kpiOverlap(a, b, LUNCH_START, LUNCH_END);
-  }
   // Start/leave times (minutes since midnight) for the selected mode.
   function kpiSchedule() {
     var s, e;
@@ -1113,6 +1110,42 @@
     else { s = kpiSettings.startMin; e = Math.min(s + 9 * 60, HARD_END); }         // full day: 9h, capped 18:30
     return { s: s, e: e };
   }
+
+  // Slack-off blocks: the first minutes of the morning and the first minutes
+  // after getting back from lunch. Clipped to the working window, so they
+  // vanish when they don't apply (e.g. arriving at 2PM has no after-lunch one).
+  function kpiSlackBlocks() {
+    var sm = kpiSettings.slackMin;
+    if (!(sm > 0)) return [];
+    var sch = kpiSchedule();
+    var raw = [[sch.s, sch.s + sm]];
+    if (sch.s < LUNCH_END && sch.e > LUNCH_END) raw.push([LUNCH_END, LUNCH_END + sm]);
+    var out = [];
+    raw.forEach(function (iv) {
+      var a = Math.max(iv[0], sch.s), b = Math.min(iv[1], sch.e);
+      if (b > a) out.push([a, b]);
+    });
+    return out;
+  }
+  // Lunch + slack off, merged so overlapping blocks are never counted twice.
+  function kpiBreaks() {
+    var iv = [[LUNCH_START, LUNCH_END]].concat(kpiSlackBlocks());
+    iv.sort(function (x, y) { return x[0] - y[0]; });
+    var out = [];
+    iv.forEach(function (cur) {
+      var last = out[out.length - 1];
+      if (last && cur[0] <= last[1]) last[1] = Math.max(last[1], cur[1]);
+      else out.push([cur[0], cur[1]]);
+    });
+    return out;
+  }
+  // Time that counts towards the day: everything but the breaks.
+  function kpiWorkingMin(a, b) {
+    if (b <= a) return 0;
+    var off = 0;
+    kpiBreaks().forEach(function (iv) { off += kpiOverlap(a, b, iv[0], iv[1]); });
+    return (b - a) - off;
+  }
   function kpiPercent(nowMin) {
     var sch = kpiSchedule();
     var total = kpiWorkingMin(sch.s, sch.e);
@@ -1120,6 +1153,17 @@
     var n = Math.max(sch.s, Math.min(nowMin, sch.e));
     var p = kpiWorkingMin(sch.s, n) / total * 100;
     return p < 0 ? 0 : p > 100 ? 100 : p;
+  }
+  // What the day is currently doing; null while actually working.
+  function kpiStatus(nowMin) {
+    var sch = kpiSchedule();
+    if (nowMin < sch.s || nowMin >= sch.e) return "not work time";
+    if (nowMin >= LUNCH_START && nowMin < LUNCH_END) return "lunch";
+    var sl = kpiSlackBlocks();
+    for (var i = 0; i < sl.length; i++) {
+      if (nowMin >= sl[i][0] && nowMin < sl[i][1]) return "slack off";
+    }
+    return null;
   }
   function kpiNowMin() {
     var d = new Date();
@@ -1135,6 +1179,9 @@
         } else {
           kpiSettings = { mode: "full", startMin: 9 * 60 }; // reset each new day
         }
+        // The slack-off length is a preference, so it outlives the daily reset.
+        kpiSettings.slackMin =
+          s && typeof s.slackMin === "number" ? s.slackMin : SLACK_DEFAULT;
         cb && cb();
       });
     } catch (e) { cb && cb(); }
@@ -1142,7 +1189,12 @@
   function saveKpi() {
     try {
       chrome.storage.sync.set({
-        kpiSettings: { mode: kpiSettings.mode, startMin: kpiSettings.startMin, date: kpiTodayStr() },
+        kpiSettings: {
+          mode: kpiSettings.mode,
+          startMin: kpiSettings.startMin,
+          slackMin: kpiSettings.slackMin,
+          date: kpiTodayStr(),
+        },
       });
     } catch (e) {}
   }
@@ -1194,6 +1246,10 @@
       '<span>Start work</span>' +
       '<input type="time" id="spu-kpi-start" style="padding:3px 6px;border:1px solid #cfd8e3;border-radius:6px;font-size:13px;" />' +
       "</label>" +
+      '<label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+      '<span>Slack off (min)</span>' +
+      '<input type="number" id="spu-kpi-slack" min="0" max="120" step="5" style="width:64px;padding:3px 6px;border:1px solid #cfd8e3;border-radius:6px;font-size:13px;" />' +
+      "</label>" +
       '<div id="spu-kpi-info" style="color:#555;font-size:12px;line-height:1.5;"></div>';
     document.body.appendChild(kpiPanelEl);
 
@@ -1231,6 +1287,17 @@
       var v = strToMm(startInput.value);
       if (v != null) { kpiSettings.startMin = v; saveKpi(); renderKpiPanel(); updateKpi(); }
     });
+
+    var slackInput = kpiPanelEl.querySelector("#spu-kpi-slack");
+    slackInput.addEventListener("change", function () {
+      var v = parseInt(slackInput.value, 10);
+      if (isNaN(v) || v < 0) v = 0;
+      if (v > 120) v = 120;
+      kpiSettings.slackMin = v; // 0 turns the slack-off blocks off
+      saveKpi();
+      renderKpiPanel();
+      updateKpi();
+    });
     kpiPanelEl.addEventListener("click", function (e) { e.stopPropagation(); });
   }
 
@@ -1248,10 +1315,15 @@
     startInput.value = mmToStr(morn ? 14 * 60 : kpiSettings.startMin);
     startInput.disabled = morn;
     startInput.style.opacity = morn ? "0.5" : "1";
+    kpiPanelEl.querySelector("#spu-kpi-slack").value = kpiSettings.slackMin;
     var sch = kpiSchedule();
+    var slack = kpiSlackBlocks()
+      .map(function (iv) { return mmToStr(iv[0]) + "–" + mmToStr(iv[1]); })
+      .join(", ");
     kpiPanelEl.querySelector("#spu-kpi-info").innerHTML =
       "Arrive <b>" + mmToStr(sch.s) + "</b> · Leave <b>" + mmToStr(sch.e) + "</b><br>" +
-      "Working: <b>" + (kpiWorkingMin(sch.s, sch.e) / 60).toFixed(1) + "h</b> (lunch 12:30–13:30)";
+      "Working: <b>" + (kpiWorkingMin(sch.s, sch.e) / 60).toFixed(1) + "h</b> (lunch 12:30–13:30)" +
+      (slack ? "<br>Slack off: <b>" + slack + "</b>" : "");
   }
 
   function ensureKpiInserted() {
@@ -1273,9 +1345,26 @@
     kpiPanelEl.style.top = rect.bottom + 6 + "px";
   }
 
+  // Chip tint per status, so the state is readable at a glance.
+  var KPI_TINTS = {
+    work: ["#eef5ff", "#2975dd", "#1a4b8f"],
+    "slack off": ["#fff4e0", "#e0a020", "#8a5300"],
+    lunch: ["#eef8f0", "#5aa46e", "#2f6b41"],
+    "not work time": ["#f1f3f5", "#b9c2cc", "#4a5561"],
+  };
   function updateKpi() {
     ensureKpiInserted();
-    if (kpiPctEl) kpiPctEl.textContent = kpiPercent(kpiNowMin()).toFixed(1) + "%";
+    var now = kpiNowMin();
+    var status = kpiStatus(now);
+    var pct = kpiPercent(now).toFixed(1) + "%";
+    // Working hours show just the number; anything else is labelled.
+    if (kpiPctEl) kpiPctEl.textContent = status ? status + " - " + pct : pct;
+    var tint = KPI_TINTS[status || "work"];
+    if (kpiChipEl && tint) {
+      kpiChipEl.style.background = tint[0];
+      kpiChipEl.style.borderColor = tint[1];
+      kpiChipEl.style.color = tint[2];
+    }
     if (kpiOpen) positionKpiPanel();
   }
 
