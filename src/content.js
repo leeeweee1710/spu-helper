@@ -627,6 +627,8 @@
     var sig = currentRowSignature();
     if (!sig) return;
     if (!force && sig === lastRowSig) return;
+    // A real move to a different pair (not the first read on activation).
+    var movedToNewPair = lastRowSig !== null && sig !== lastRowSig;
     lastRowSig = sig;
     ensureLocalConfirmSelected(); // fix the default selection before reading it
     buildOptions();
@@ -635,6 +637,8 @@
     refreshSmartHints();
     refreshCategoryTranslation();
     ensureLayoutObservers();
+    // Every new pair starts on its model (first) image.
+    if (movedToNewPair) resetImagePair();
   }
 
   // Ask the MAIN-world adapter to (re)compute our exact-match highlights for
@@ -921,6 +925,16 @@
   function advanceImagePair() {
     callAdapter("nextImagePair").then(function () {
       if (compareOpen) setTimeout(function () { if (compareOpen) openCompare(); }, 140);
+    });
+  }
+
+  // Back to each product's first (model) image - used when a new pair opens, so
+  // it never starts on the image the previous pair was left at. The adapter
+  // retries the reset shortly after (the new panels may still be rendering), so
+  // refresh the compare overlay after that settles.
+  function resetImagePair() {
+    callAdapter("resetImagePair").then(function () {
+      if (compareOpen) setTimeout(function () { if (compareOpen) openCompare(); }, 260);
     });
   }
 

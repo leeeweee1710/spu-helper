@@ -330,13 +330,12 @@
     return null;
   }
 
-  // Advance both products' main image carousels to the next image (wrapping),
-  // programmatically via moveTo() so it does NOT trigger the native enlarger
-  // (clicking a thumbnail would open the modal).
-  function nextImagePair() {
+  // Run fn(instance, imageCount) for each of the two products' main carousels.
+  // Returns how many of them fn actually acted on (fn returns false to skip).
+  function eachCarousel(fn) {
     var root = getRoot();
     var panels = root.querySelectorAll(".relative.h-full.flex-1.overflow-auto.p-4");
-    var moved = 0;
+    var acted = 0;
     for (var i = 0; i < panels.length && i < 2; i++) {
       var slider = panels[i].querySelector(".carousel-slider");
       if (!slider) continue;
@@ -344,10 +343,47 @@
       if (!inst) continue;
       var total = panels[i].querySelectorAll("li.thumb").length ||
         panels[i].querySelectorAll(".carousel-slider .slide").length;
-      if (total < 2) continue;
-      try { inst.moveTo((inst.state.selectedItem + 1) % total); moved++; } catch (e) {}
+      try { if (fn(inst, total) !== false) acted++; } catch (e) {}
     }
+    return acted;
+  }
+
+  // Advance both products' main image carousels to the next image (wrapping),
+  // programmatically via moveTo() so it does NOT trigger the native enlarger
+  // (clicking a thumbnail would open the modal).
+  function nextImagePair() {
+    cancelPendingReset(); // the user is driving now
+    var moved = eachCarousel(function (inst, total) {
+      if (total < 2) return false;
+      inst.moveTo((inst.state.selectedItem + 1) % total);
+    });
     return { ok: true, moved: moved };
+  }
+
+  // Show each product's first (model) image again. React keeps the carousels
+  // mounted across row changes, so a new pair would otherwise open on whatever
+  // image the previous pair was left at. Retried a couple of times because the
+  // new pair's panels may still be rendering (a retry is a no-op once the
+  // carousel is on image 0, and is cancelled if the user presses next-image).
+  var RESET_RETRIES = [200, 500];
+  var resetTimers = [];
+  function cancelPendingReset() {
+    resetTimers.forEach(clearTimeout);
+    resetTimers = [];
+  }
+  function resetCarousels() {
+    return eachCarousel(function (inst) {
+      if (!inst.state.selectedItem) return false; // already on the first image
+      inst.moveTo(0);
+    });
+  }
+  function resetImagePair() {
+    cancelPendingReset();
+    var reset = resetCarousels();
+    RESET_RETRIES.forEach(function (ms) {
+      resetTimers.push(setTimeout(resetCarousels, ms));
+    });
+    return { ok: true, reset: reset };
   }
 
   // ======================================================================
@@ -805,6 +841,8 @@
         reply(gotoRow((d.payload && d.payload.which) || "first"));
       } else if (d.action === "nextImagePair") {
         reply(nextImagePair());
+      } else if (d.action === "resetImagePair") {
+        reply(resetImagePair());
       } else if (d.action === "smartHints") {
         reply(smartHints(d.payload || {}));
       } else if (d.action === "probe") {
