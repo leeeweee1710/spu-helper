@@ -81,6 +81,12 @@
   background: #eef7ee;
 }
 
+/* Common definitions we add ourselves - tinted apart from the product's own. */
+#spu-helper-panel .spu-opt.spu-common {
+  background: #eaf0fb;
+  color: #24467e;
+}
+
 #spu-helper-panel .spu-opt.spu-selected {
   background: #fff6d6;
   border-color: #f5c518;

@@ -242,6 +242,27 @@
   // ======================================================================
   // Option model
   // ======================================================================
+  // Reasons that come up on almost every product. Offered on top of whatever
+  // the product itself defines, unless one of the aliases already appears
+  // inside one of those (so "Bundle Set" covers Bundle, "Colour Shade" and
+  // "Color" cover Colour, "Compatible models" covers Model).
+  var COMMON_DEFS = [
+    { label: "Model", aliases: ["model"] },
+    { label: "Colour", aliases: ["colour", "color"] },
+    { label: "Brand", aliases: ["brand"] },
+    { label: "Bundle", aliases: ["bundle"] },
+  ];
+
+  // The commons that aren't already covered by the product's definitions.
+  function missingCommonDefs(defs) {
+    var have = defs.map(function (d) { return d.toLowerCase(); });
+    return COMMON_DEFS.filter(function (c) {
+      return !c.aliases.some(function (a) {
+        return have.some(function (h) { return h.indexOf(a) !== -1; });
+      });
+    });
+  }
+
   function buildOptions() {
     var defs = extractDefinitions();
     var opts = [];
@@ -256,15 +277,25 @@
         commit: { local_confirm: VAL.N, remarks: d },
       });
     });
+    missingCommonDefs(defs).forEach(function (c) {
+      opts.push({
+        id: "common:" + c.label,
+        label: c.label,
+        def: c.label,
+        kind: "common",
+        commit: { local_confirm: VAL.N, remarks: c.label },
+      });
+    });
     opts.push({ id: "LIVE_SELLING", label: "LIVE_SELLING", kind: "simple", commit: { local_confirm: VAL.LIVE_SELLING } });
     opts.push({ id: "CUSTOM", label: "Custom definition…", kind: "custom" });
     options = opts;
   }
 
-  // The definition options currently on show, as a comparable key.
+  // The reason options currently on show (product's own + commons), as a
+  // comparable key.
   function definitionsKey() {
     return options
-      .filter(function (o) { return o.kind === "definition"; })
+      .filter(function (o) { return !!o.def; })
       .map(function (o) { return o.label; })
       .join("");
   }
@@ -303,7 +334,7 @@
       // Map the stored remark back to its definition option, else Custom.
       var rem = (remarks || "").trim();
       for (var i = 0; i < options.length; i++) {
-        if (options[i].kind === "definition" && (options[i].def || "").trim() === rem) return i;
+        if (options[i].def && options[i].def.trim() === rem) return i;
       }
       return indexOfId("CUSTOM");
     }
@@ -459,7 +490,10 @@
       if (opt.kind === "custom") return; // rendered as the textbox
       var b = document.createElement("button");
       b.type = "button";
-      b.className = "spu-opt" + (opt.kind === "definition" ? " spu-def" : "");
+      b.className =
+        "spu-opt" +
+        (opt.kind === "definition" ? " spu-def" : "") +
+        (opt.kind === "common" ? " spu-common" : "");
       b.textContent = opt.label;
       b.dataset.idx = String(i);
       if (i === selectedIndex) b.classList.add("spu-selected");
