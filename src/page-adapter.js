@@ -288,16 +288,20 @@
     return { ok: true };
   }
 
-  // Jump to the first / last row and select its Local Confirm cell. Scrolls
-  // the row into view (Tabulator virtualises rows) then clicks the cell.
+  // Jump to a row - "first", "last", or a 0-based index - and select its Local
+  // Confirm cell. Scrolls it into view (Tabulator virtualises rows) then clicks.
   function gotoRow(which) {
     var table = findTable();
     if (!table) return { ok: false, reason: "no-table" };
     var rows;
     try { rows = table.getRows(); } catch (e) { rows = null; }
     if (!rows || !rows.length) return { ok: false, reason: "no-rows" };
-    var row = which === "last" ? rows[rows.length - 1] : rows[0];
-    try { table.scrollToRow(row, which === "last" ? "bottom" : "top", false); } catch (e) {}
+    var byIndex = typeof which === "number";
+    var row = byIndex
+      ? rows[Math.max(0, Math.min(which, rows.length - 1))]
+      : which === "last" ? rows[rows.length - 1] : rows[0];
+    var where = byIndex ? "center" : which === "last" ? "bottom" : "top";
+    try { table.scrollToRow(row, where, false); } catch (e) {}
     setTimeout(function () {
       try {
         var el = row.getCell("local_confirm").getElement();
@@ -308,6 +312,43 @@
       } catch (e) {}
     }, 130);
     return { ok: true };
+  }
+
+  // ---- pagination -------------------------------------------------------
+  // The page controls next to Submit are an antd <Pagination>. Its React props
+  // hold the live page/size and the onChange the app itself uses, so driving
+  // that is the same as clicking the control.
+  function paginationProps() {
+    var el = getRoot().querySelector(".ant-pagination");
+    if (!el) return null;
+    var fk = Object.keys(el).find(function (k) { return k.indexOf("__reactFiber$") === 0; });
+    var f = fk ? el[fk] : null, guard = 30;
+    while (f && guard-- > 0) {
+      var p = f.memoizedProps;
+      if (p && typeof p.onChange === "function" && typeof p.total === "number" && p.current) return p;
+      f = f.return;
+    }
+    return null;
+  }
+  function pagination() {
+    var p = paginationProps();
+    if (!p) return { ok: false, reason: "no-pagination" };
+    return { ok: true, page: p.current, pageSize: p.pageSize, total: p.total };
+  }
+  function setPagination(payload) {
+    var p = paginationProps();
+    if (!p) return { ok: false, reason: "no-pagination" };
+    var page = payload && payload.page != null ? payload.page : p.current;
+    var size = payload && payload.pageSize != null ? payload.pageSize : p.pageSize;
+    if (page === p.current && size === p.pageSize) {
+      return { ok: true, changed: false, page: page, pageSize: size };
+    }
+    try {
+      p.onChange(page, size);
+    } catch (e) {
+      return { ok: false, reason: "onchange-threw", detail: String(e) };
+    }
+    return { ok: true, changed: true, page: page, pageSize: size };
   }
 
   // Where the selected row sits in the page's rows, so the caller can tell
@@ -331,8 +372,26 @@
         if (el === rowEl) { idx = i; break; }
       }
     }
-    if (idx < 0) return { ok: false, reason: "no-active-row", count: rows.length };
+    if (idx < 0) return { ok: false, reason: "no-active-row", count: rows.length, index: -1 };
     return { ok: true, index: idx, count: rows.length, isLast: idx === rows.length - 1 };
+  }
+
+  // Page AND selected row read in one synchronous pass. Two separate calls can
+  // straddle a page transition (pagination already on the new page while the
+  // table still holds the old rows), which would mix them into a bogus
+  // position - hence one action for both.
+  function position() {
+    var p = paginationProps();
+    if (!p) return { ok: false, reason: "no-pagination" };
+    var ri = rowInfo();
+    return {
+      ok: true,
+      page: p.current,
+      pageSize: p.pageSize,
+      total: p.total,
+      index: ri.ok ? ri.index : -1, // -1 = nothing selected (page still loading)
+      count: ri.count || 0,
+    };
   }
 
   // The react-responsive-carousel instance that drives a product's main image
@@ -863,7 +922,14 @@
       } else if (d.action === "navigate") {
         reply(navigate((d.payload && d.payload.dir) || "down"));
       } else if (d.action === "gotoRow") {
-        reply(gotoRow((d.payload && d.payload.which) || "first"));
+        var which = d.payload && d.payload.which !== undefined ? d.payload.which : "first";
+        reply(gotoRow(which)); // 0 is a valid index, so don't use || here
+      } else if (d.action === "pagination") {
+        reply(pagination());
+      } else if (d.action === "position") {
+        reply(position());
+      } else if (d.action === "setPagination") {
+        reply(setPagination(d.payload || {}));
       } else if (d.action === "rowInfo") {
         reply(rowInfo());
       } else if (d.action === "nextImagePair") {

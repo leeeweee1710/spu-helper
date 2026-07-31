@@ -38,6 +38,7 @@
     smartHintsMinLen: 3, // shortest matched run to highlight
     autoNextOnClick: true, // clicking an option moves to the next product
     autoNextOnCustom: true, // keying in a custom reason moves to the next product
+    pageSize: 100, // products per page to switch to when a task is opened
     layoutSizes: null, // remembered native splitter sizes { w, h }
     // Each action maps to a LIST of keys (any of them triggers it).
     keybindings: {
@@ -701,6 +702,178 @@
     });
   }
 
+  // ======================================================================
+  // Page size + "where was I" memory
+  // ======================================================================
+  // Position in a task = (page - 1) * pageSize + row on the page, so it stays
+  // meaningful when the page size changes between visits. Kept in local
+  // storage (it changes on every row move - too chatty for sync).
+  var restoring = false; // suppress saving / auto-key while we reposition
+  var posSaveTimer = null;
+
+  function taskKey() {
+    var q = new URLSearchParams(location.search);
+    var task = q.get("task_id");
+    if (!task) return null;
+    return "spuPos:" + (q.get("project_id") || "") + ":" + task;
+  }
+
+  function usablePosition(pos) {
+    return !!(pos && pos.ok && pos.count && pos.index >= 0);
+  }
+  function absOf(pos) {
+    return (pos.page - 1) * pos.pageSize + pos.index + 1;
+  }
+
+  // Only persist a settled position: during a page turn the app briefly shows
+  // the new page with the old rows (or nothing selected), and saving then is
+  // what used to send us back a page. So take two readings and store only if
+  // they agree.
+  function repositioning() {
+    return restoring || watching;
+  }
+  function savePosition() {
+    if (repositioning()) return;
+    var key = taskKey();
+    if (!key) return;
+    clearTimeout(posSaveTimer);
+    posSaveTimer = setTimeout(function () {
+      if (repositioning()) return;
+      callAdapter("position").then(function (a) {
+        if (!usablePosition(a) || repositioning()) return;
+        setTimeout(function () {
+          if (repositioning()) return;
+          callAdapter("position").then(function (b) {
+            if (!usablePosition(b) || repositioning()) return;
+            if (a.page !== b.page || a.pageSize !== b.pageSize || a.index !== b.index) return;
+            var store = {};
+            store[key] = { abs: absOf(b), at: Date.now() };
+            try { chrome.storage.local.set(store); } catch (e) {}
+          });
+        }, 350);
+      });
+    }, 600);
+  }
+
+  function readPosition(key, cb) {
+    if (!key) { cb(0); return; }
+    try {
+      chrome.storage.local.get(key, function (r) {
+        var saved = r && r[key];
+        cb(saved && saved.abs > 0 ? saved.abs : 0);
+      });
+    } catch (e) { cb(0); }
+  }
+
+  // Opening a task: switch to the configured page size FIRST, then work out
+  // which page/row the remembered position lands on at that size and go there.
+  function restoreTaskPosition() {
+    restoring = true;
+    var size = Number(settings.pageSize) || 100;
+    callAdapter("position").then(function (pos) {
+      if (!pos || !pos.ok) { finishRestore(); return; }
+      readPosition(taskKey(), function (abs) {
+        var page, row0;
+        if (abs > 0) {
+          if (pos.total && abs > pos.total) abs = pos.total;
+          page = Math.floor((abs - 1) / size) + 1;
+          row0 = (abs - 1) % size;
+        } else {
+          // Nothing remembered: only resize, keeping the current first row.
+          page = Math.floor(((pos.page - 1) * pos.pageSize) / size) + 1;
+          row0 = -1;
+        }
+        converge({ page: page, size: size, row0: row0, tries: 0, stable: 0, sentAt: 0 });
+      });
+    });
+  }
+
+  // Applying the page and the row once is not enough: the app re-selects the
+  // first row when the page's data finishes loading, and a page switch can land
+  // somewhere else entirely. So watch what actually happened and correct it
+  // until the target holds still for a few checks (or we run out of patience).
+  var RESTORE_TRIES = 40;      // x RESTORE_WAIT = ~12s worst case
+  var RESTORE_WAIT = 300;
+  var RESTORE_STABLE = 4;      // consecutive agreeing checks before we let go
+  var RESTORE_RESEND = 1500;   // min gap between page switches (each refetches)
+  var RESTORE_SWITCHES = 3;    // don't refetch forever if it won't take
+  function converge(st) {
+    if (st.tries >= RESTORE_TRIES) { finishRestore(st.row0); return; }
+    callAdapter("position").then(function (pos) {
+      var again = function () {
+        st.tries++;
+        setTimeout(function () { converge(st); }, RESTORE_WAIT);
+      };
+      if (!pos || !pos.ok) { again(); return; }
+      // Wrong page or size: (re-)issue the switch, but not on every tick.
+      if (pos.page !== st.page || pos.pageSize !== st.size) {
+        var now = Date.now();
+        if (now - st.sentAt > RESTORE_RESEND) {
+          if (st.sent >= RESTORE_SWITCHES) { finishRestore(-1); return; }
+          st.sent++;
+          st.sentAt = now;
+          callAdapter("setPagination", { page: st.page, pageSize: st.size });
+        }
+        st.stable = 0;
+        again();
+        return;
+      }
+      if (!pos.count) { again(); return; } // page still loading
+      if (st.row0 < 0) { finishRestore(-1); return; } // resize only
+      if (pos.index === st.row0) {
+        st.stable++;
+        if (st.stable >= RESTORE_STABLE) { finishRestore(st.row0); return; }
+        again();
+        return;
+      }
+      // Drifted (or never arrived) - put the selection back.
+      st.stable = 0;
+      callAdapter("gotoRow", { which: st.row0 });
+      again();
+    });
+  }
+
+  // Even after the selection holds still, the app can re-select the first row
+  // when the page's data finally lands. Keep an eye on it for a few seconds -
+  // but never fight the user: a real keypress or click ends the watch at once.
+  var WATCH_MS = 6000, WATCH_WAIT = 400, WATCH_FIXES = 3;
+  var watching = false, watchTimer = null, lastUserAction = 0;
+  function watchRestoredRow(row0) {
+    clearTimeout(watchTimer);
+    if (row0 < 0) { endWatch(); return; }
+    watching = true;
+    var startedAt = Date.now(), until = startedAt + WATCH_MS, fixes = 0;
+    var tick = function () {
+      if (lastUserAction > startedAt || Date.now() > until || fixes >= WATCH_FIXES) {
+        endWatch();
+        return;
+      }
+      callAdapter("position").then(function (pos) {
+        if (lastUserAction > startedAt) { endWatch(); return; }
+        if (pos && pos.ok && pos.count && pos.index >= 0 && pos.index !== row0) {
+          fixes++;
+          callAdapter("gotoRow", { which: row0 });
+        }
+        watchTimer = setTimeout(tick, WATCH_WAIT);
+      });
+    };
+    watchTimer = setTimeout(tick, WATCH_WAIT);
+  }
+  function endWatch() {
+    clearTimeout(watchTimer);
+    watchTimer = null;
+    if (!watching) return;
+    watching = false;
+    handleRowChange(true); // now that we've settled, reflect the real row
+  }
+
+  function finishRestore(row0) {
+    restoring = false;
+    handleRowChange(true);
+    focusTable();
+    watchRestoredRow(row0 === undefined ? -1 : row0);
+  }
+
   // A signature that identifies the current pair, so we only react to real
   // row changes (not every unrelated DOM mutation or our own commit).
   function currentRowSignature() {
@@ -731,6 +904,7 @@
     refreshCategoryTranslation();
     ensureLayoutObservers();
     scheduleDefinitionsRecheck(); // definitions may still be rendering
+    savePosition(); // remember where we are in this task
     // Every new pair starts on its model (first) image.
     if (movedToNewPair) resetImagePair();
   }
@@ -1083,7 +1257,9 @@
     if (isUnset(val)) {
       if (customInput) customInput.value = "";
       var yi = indexOfId("Y");
-      if (settings.autoKeyY) {
+      // Never auto-key while repositioning - the row under us is in transit,
+      // and a row we are returning to has already been dealt with.
+      if (settings.autoKeyY && !restoring && !watching) {
         chooseOption(yi, false); // highlight + commit Y
       } else {
         setSelected(yi);
@@ -1509,12 +1685,13 @@
     toastEl.style.display = "block";
     setupKpi();
     waitForTable(function () {
-      handleRowChange(true);
-      focusTable();
       setupRowObserver();
       setupModalObserver();
       updateModalState();
       applyLayoutSizes();
+      // Page size first, then back to where we left off; both end in a forced
+      // handleRowChange, so nothing else needs to kick things off here.
+      restoreTaskPosition();
     });
   }
 
@@ -1581,6 +1758,14 @@
   // The SPU app swallows keydown at window-capture (stopPropagation), so a
   // document-level listener never sees W/S/A/D. Listen on window capture too.
   window.addEventListener("keydown", onKeyDown, true);
+  // Real (trusted) input means the user has taken over - our own synthetic
+  // clicks and key events are untrusted, so they never count.
+  function noteUserAction(e) {
+    if (e && e.isTrusted) lastUserAction = Date.now();
+  }
+  window.addEventListener("keydown", noteUserAction, true);
+  window.addEventListener("mousedown", noteUserAction, true);
+  window.addEventListener("wheel", noteUserAction, true);
   // Intercept product-image clicks (capture) to open our side-by-side compare.
   window.addEventListener("click", onImageClickCapture, true);
   loadSettings(function () {

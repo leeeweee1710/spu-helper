@@ -7,6 +7,7 @@ var DEFAULTS = {
   smartHintsMinLen: 3,
   autoNextOnClick: true,
   autoNextOnCustom: true,
+  pageSize: 100,
   keybindings: {
     next: ["w", "i"],
     prev: ["s", "k"],
@@ -36,6 +37,7 @@ var els = {
   autoNextOnCustom: document.getElementById("autoNextOnCustom"),
   smartHints: document.getElementById("smartHints"),
   smartHintsMinLen: document.getElementById("smartHintsMinLen"),
+  pageSize: document.getElementById("pageSize"),
   status: document.getElementById("status"),
 };
 
@@ -79,6 +81,7 @@ function render() {
   els.autoNextOnCustom.checked = !!current.autoNextOnCustom;
   els.smartHints.checked = !!current.smartHints;
   els.smartHintsMinLen.value = current.smartHintsMinLen;
+  els.pageSize.value = String(current.pageSize);
   renderKeys();
 }
 
@@ -179,6 +182,11 @@ els.smartHintsMinLen.addEventListener("change", function () {
   if (v > 20) v = 20;
   current.smartHintsMinLen = v;
   els.smartHintsMinLen.value = v;
+  persist();
+});
+
+els.pageSize.addEventListener("change", function () {
+  current.pageSize = parseInt(els.pageSize.value, 10) || 100;
   persist();
 });
 
