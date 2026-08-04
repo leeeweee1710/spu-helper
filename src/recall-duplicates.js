@@ -19,6 +19,10 @@
   // links instead - see cardFor().
   var ITEM_SELECTOR = '.shopee-search-item-result__item, [data-sqe="item"]';
   var MAX_CARD_HOPS = 8;
+  // A card is never most of the screen. Without this, a page holding one product
+  // above a not-yet-loaded grid (find_similar_products) would climb to the page
+  // wrapper and mark everything.
+  var MAX_CARD_AREA = 0.55;
   var cardCache = new WeakMap(); // product link -> the box we mark
 
   var BADGE_STYLE =
@@ -30,10 +34,21 @@
     checked: { border: "4px solid #52c41a", opacity: "1", label: "CHECKED", color: "#52c41a" },
   };
 
+  // The badge is always a direct child. A plain querySelector would reach into
+  // a card nested inside this box and delete ITS badge instead - which is how a
+  // marked card ended up with no badge and a stray one sat at the page corner.
+  function ownBadge(item) {
+    var kids = item.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].classList && kids[i].classList.contains("status-badge")) return kids[i];
+    }
+    return null;
+  }
+
   // Strip our styling instead of writing "none"/"1" over it, so the card keeps
   // whatever border and opacity Shopee gave it.
   function resetItem(item) {
-    var badge = item.querySelector(".status-badge");
+    var badge = ownBadge(item);
     if (badge) badge.remove();
     item.style.removeProperty("border");
     item.style.removeProperty("opacity");
@@ -57,6 +72,13 @@
     return el.offsetWidth > 0 || el.offsetHeight > 0;
   }
 
+  // Too big to be one product's card.
+  function oversized(el) {
+    var rect = el.getBoundingClientRect();
+    var viewport = (window.innerWidth || 1) * (window.innerHeight || 1);
+    return rect.width * rect.height > viewport * MAX_CARD_AREA;
+  }
+
   // The card is the largest box that still belongs to this one product: climb
   // from its link until the parent starts holding other products. A known card
   // container wins outright.
@@ -64,7 +86,10 @@
     var node = anchor, best = null, hops = 0;
     while (node && hops++ < MAX_CARD_HOPS) {
       if (node.matches && node.matches(ITEM_SELECTOR)) return node;
-      if (hasBox(node)) best = node;
+      if (hasBox(node)) {
+        if (oversized(node)) break; // ancestors are only bigger
+        best = node;
+      }
       var parent = node.parentElement;
       if (!parent || parent === document.body || parent === document.documentElement) break;
       if (holdsOtherProducts(parent, key)) break;
@@ -81,7 +106,16 @@
       var key = getProductKey(anchors[i].href);
       if (!key) continue;
       var card = cardCache.get(anchors[i]);
-      if (!card || !card.isConnected || !card.contains(anchors[i])) {
+      // Re-derive when the cached box stopped being this product's own: these
+      // pages fill in lazily, so a box that held one product at first can end
+      // up holding a whole grid - or simply grow far too big to be a card.
+      if (
+        !card ||
+        !card.isConnected ||
+        !card.contains(anchors[i]) ||
+        holdsOtherProducts(card, key) ||
+        oversized(card)
+      ) {
         card = cardFor(anchors[i], key);
         if (card) cardCache.set(anchors[i], card);
       }
@@ -107,8 +141,9 @@
 
         // Skip cards already in the right state - this runs on every scroll.
         // Comparing against "" also un-marks items dropped from memory one at a
-        // time, not just on a full clear.
-        if ((item.dataset.appliedStatus || "") === status) continue;
+        // time, not just on a full clear. A marked card that somehow lost its
+        // badge is repainted rather than skipped.
+        if ((item.dataset.appliedStatus || "") === status && (!status || ownBadge(item))) continue;
 
         if (!status) {
           resetItem(item);
@@ -117,7 +152,7 @@
 
         var style = STATUS_STYLES[status];
         item.style.position = "relative";
-        var badge = item.querySelector(".status-badge");
+        var badge = ownBadge(item);
         if (!badge) {
           badge = document.createElement("div");
           badge.className = "status-badge";
@@ -135,6 +170,14 @@
       var marked = document.querySelectorAll("[data-applied-status]");
       for (var j = 0; j < marked.length; j++) {
         if (live.indexOf(marked[j]) === -1) resetItem(marked[j]);
+      }
+      // Badges are absolutely positioned against their card, so one left on a
+      // box that is no longer a card drifts to the page corner. Drop any whose
+      // host we are not marking.
+      var strays = document.querySelectorAll(".status-badge");
+      for (var s = 0; s < strays.length; s++) {
+        var host = strays[s].parentElement;
+        if (!host || live.indexOf(host) === -1) strays[s].remove();
       }
     });
   }
