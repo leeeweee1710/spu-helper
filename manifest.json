@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SPU Annotation Helper",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Comprehensive toolkit for annotating at Shopee",
   "permissions": [
     "storage",
@@ -33,6 +33,16 @@
       ],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://spu.shopee.tw/annotation/*"
+      ],
+      "js": [
+        "src/recall-seed.js"
+      ],
+      "run_at": "document_idle",
+      "world": "ISOLATED"
     },
     {
       "matches": [

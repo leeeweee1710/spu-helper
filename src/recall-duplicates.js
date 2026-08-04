@@ -32,6 +32,9 @@
   var STATUS_STYLES = {
     stashed: { border: "6px solid #ff4d4f", opacity: "0.4", label: "STASHED", color: "#ff4d4f" },
     checked: { border: "4px solid #52c41a", opacity: "1", label: "CHECKED", color: "#52c41a" },
+    // The product the task asked us to find. Outranks the other two: knowing a
+    // result IS the seed matters more than whether it has been looked at.
+    seed: { border: "5px solid #1e88e5", opacity: "1", label: "SEED", color: "#1e88e5" },
   };
 
   // The badge is always a direct child. A plain querySelector would reach into
@@ -126,18 +129,33 @@
     return cards;
   }
 
+  // Which card is the task's seed, if it is on the page at all. Matched on the
+  // shop/item id from the task's item url and nothing else: titles are not
+  // unique (several shops list the very same one) and a search card carries no
+  // shop name to tell them apart. No item url on the task, no marking.
+  function seedCard(seed, cards) {
+    if (!seed || !seed.key) return null;
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].key === seed.key) return cards[i].el;
+    }
+    return null;
+  }
+
   function syncUI() {
     if (!chrome.runtime || !chrome.runtime.id) return;
-    chrome.storage.local.get(["product_memory"], function (res) {
+    chrome.storage.local.get(["product_memory", "recall_seed"], function (res) {
       if (chrome.runtime.lastError) return;
       var memory = res.product_memory || {};
+      var seed = res.recall_seed || null;
       var cards = cardsOnPage();
+      var seedEl = seedCard(seed, cards);
       var live = [];
       for (var i = 0; i < cards.length; i++) {
         var item = cards[i].el;
         var key = cards[i].key;
         live.push(item);
         var status = key && STATUS_STYLES[memory[key]] ? memory[key] : "";
+        if (item === seedEl) status = "seed";
 
         // Skip cards already in the right state - this runs on every scroll.
         // Comparing against "" also un-marks items dropped from memory one at a
@@ -202,7 +220,7 @@
 
   // Repaint as soon as memory changes, including marks made in other tabs.
   chrome.storage.onChanged.addListener(function (changes, area) {
-    if (area === "local" && changes.product_memory) syncUI();
+    if (area === "local" && (changes.product_memory || changes.recall_seed)) syncUI();
   });
 
   // Watch for scrolling / newly rendered cards. Throttled rather than debounced:

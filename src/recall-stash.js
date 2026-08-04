@@ -55,15 +55,39 @@
     return null;
   }
 
-  function styleButton(btn, enabled) {
+  // "ready" (can stash), "done" (this model is already on the list) or "idle".
+  var LOOKS = {
+    ready: { border: "#1d8a3f", background: "#eaf7ee", color: "#12772f", cursor: "pointer" },
+    done: { border: "#1d8a3f", background: "#1d8a3f", color: "#fff", cursor: "default" },
+    idle: { border: "#c9ccd1", background: "#f4f5f6", color: "#9aa0a6", cursor: "not-allowed" },
+  };
+
+  function styleButton(btn, look) {
+    var s = LOOKS[look] || LOOKS.idle;
     btn.style.cssText =
       "display:inline-flex;align-items:center;justify-content:center;gap:6px;" +
       "min-width:104px;height:48px;margin-right:10px;padding:0 16px;" +
-      "border:1px solid " + (enabled ? "#1d8a3f" : "#c9ccd1") + ";border-radius:2px;" +
-      "background:" + (enabled ? "#eaf7ee" : "#f4f5f6") + ";" +
-      "color:" + (enabled ? "#12772f" : "#9aa0a6") + ";" +
+      "border:1px solid " + s.border + ";border-radius:2px;" +
+      "background:" + s.background + ";color:" + s.color + ";" +
       "font-size:14px;font-weight:600;line-height:1;white-space:nowrap;" +
-      "cursor:" + (enabled ? "pointer" : "not-allowed") + ";";
+      "cursor:" + s.cursor + ";";
+  }
+
+  // Model ids already on the stash list, so an annotator can see at a glance
+  // that this variation has been reported. Kept in step with the sidebar.
+  var stashed = {};
+  function loadStashed(cb) {
+    try {
+      chrome.storage.local.get({ recall_stash: [] }, function (r) {
+        stashed = {};
+        ((r && r.recall_stash) || []).forEach(function (e) {
+          if (e && e.modelId) stashed[String(e.modelId)] = true;
+        });
+        cb && cb();
+      });
+    } catch (e) {
+      cb && cb();
+    }
   }
 
   // What the page currently shows, so a busy page (lazy loading fires the
@@ -89,12 +113,16 @@
         return;
       }
       var ok = !!(sel && sel.ok);
-      btn.dataset.ready = ok ? "1" : "";
-      btn.textContent = ok ? "Stash" : "Pick a variation";
-      btn.title = ok
+      var already = ok && !!stashed[String(sel.modelId)];
+      btn.dataset.ready = ok && !already ? "1" : "";
+      btn.dataset.modelId = ok ? String(sel.modelId) : "";
+      btn.textContent = already ? "Stashed ✓" : ok ? "Stash" : "Pick a variation";
+      btn.title = already
+        ? sel.name + " is already on the Recall list"
+        : ok
         ? "Stash " + sel.name + " for the Recall list"
         : "Choose every variation first";
-      styleButton(btn, ok);
+      styleButton(btn, already ? "done" : ok ? "ready" : "idle");
     });
   }
 
@@ -118,6 +146,7 @@
           },
         },
         function () {
+          if (!chrome.runtime.lastError) stashed[String(sel.modelId)] = true;
           flash(btn, chrome.runtime.lastError ? "Failed" : "Stashed ✓");
         }
       );
@@ -143,7 +172,7 @@
     var btn = document.createElement("button");
     btn.id = BTN_ID;
     btn.type = "button";
-    styleButton(btn, false);
+    styleButton(btn, "idle");
     btn.textContent = "Pick a variation";
     btn.addEventListener("click", function (e) {
       e.preventDefault();
@@ -235,6 +264,15 @@
     }, 260);
   }, true);
 
+  // Deleting from the sidebar (or another tab stashing) has to show up here.
+  chrome.storage.onChanged.addListener(function (changes, area) {
+    if (area !== "local" || !changes.recall_stash) return;
+    loadStashed(function () {
+      var btn = document.getElementById(BTN_ID);
+      if (btn) refreshButtonState(btn, true);
+    });
+  });
+
   // The buy-button row renders after the first paint, so keep looking for a
   // while instead of waiting on a mutation that may never come.
   var tries = 0;
@@ -243,5 +281,6 @@
     if (document.getElementById(BTN_ID) || ++tries > 60) clearInterval(poll);
   }, 250);
 
-  pass();
+  // Know what is already stashed before the button is first drawn.
+  loadStashed(pass);
 })();
