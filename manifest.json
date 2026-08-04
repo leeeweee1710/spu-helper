@@ -53,6 +53,16 @@
         "https://shopee.tw/*"
       ],
       "js": [
+        "src/recall-unlock.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://shopee.tw/*"
+      ],
+      "js": [
         "src/recall-adapter.js"
       ],
       "run_at": "document_idle",

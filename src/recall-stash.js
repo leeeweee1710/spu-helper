@@ -16,8 +16,6 @@
   var BTN_ID = "spu-stash-btn";
   var CART_TEXT = /加入購物車/;
   var VARIATION_BTN = '[class*="selection-box-"]';
-  var SEL_CLASS = "selection-box-selected";
-  var UNSEL_CLASS = "selection-box-unselected";
 
   // ---- bridge to the MAIN-world adapter ---------------------------------
   var pending = {};
@@ -157,51 +155,46 @@
     refreshButtonState(btn);
   }
 
-  // ---- out-of-stock variations -----------------------------------------
-  // A Recall annotator still has to report a sold-out variation, but Shopee
-  // disables those buttons. Re-enable them, and if the click doesn't take
-  // (React ignores a sold-out model) mark the choice ourselves - the selected
-  // class is what identifies the model, which is all the stash needs.
-  function variationButtons(root) {
-    return (root || document).querySelectorAll(VARIATION_BTN);
+  // ---- sold-out variations ---------------------------------------------
+  // src/recall-unlock.js makes sold-out options selectable by flipping the
+  // model flags in the PDP response, so Shopee renders (and highlights) them
+  // like any other option. That also removes its greyed-out look, so mark them
+  // ourselves - the annotator still needs to know the variation is sold out.
+  var soldOutLabels = null; // null = not asked yet
+  var soldOutFor = "";
+
+  function markSoldOut() {
+    if (soldOutFor !== location.href) {
+      soldOutFor = location.href;
+      soldOutLabels = null;
+    }
+    if (soldOutLabels === null) {
+      soldOutLabels = []; // don't ask again while the answer is in flight
+      askAdapter("soldOutOptions").then(function (res) {
+        soldOutLabels = res && res.ok && res.labels ? res.labels : [];
+        applySoldOutCue();
+      });
+      return;
+    }
+    applySoldOutCue();
   }
 
-  function enableVariationButtons() {
-    var btns = variationButtons();
+  function applySoldOutCue() {
+    if (!soldOutLabels || !soldOutLabels.length) return;
+    var btns = document.querySelectorAll(VARIATION_BTN);
     for (var i = 0; i < btns.length; i++) {
-      var b = btns[i];
-      if (b.disabled) b.disabled = false;
-      if (b.getAttribute("aria-disabled") === "true") b.setAttribute("aria-disabled", "false");
-      if (b.style.pointerEvents === "none") b.style.removeProperty("pointer-events");
-      var computed = window.getComputedStyle(b);
-      if (computed && computed.pointerEvents === "none") b.style.pointerEvents = "auto";
-      if (computed && computed.cursor === "not-allowed") b.style.cursor = "pointer";
-    }
-  }
-
-  // Options of the same tier sit side by side, so the clicked button's siblings
-  // are the ones to clear.
-  function forceSelect(btn) {
-    var group = btn.parentElement;
-    if (group) {
-      var siblings = variationButtons(group);
-      for (var i = 0; i < siblings.length; i++) {
-        if (siblings[i] === btn || siblings[i].parentElement !== group) continue;
-        siblings[i].classList.remove(SEL_CLASS);
-        siblings[i].classList.add(UNSEL_CLASS);
-        delete siblings[i].dataset.spuForced;
+      var btn = btns[i];
+      if (btn.dataset.spuSoldOut) continue;
+      var text = (btn.textContent || "").trim();
+      for (var j = 0; j < soldOutLabels.length; j++) {
+        if (text && text.indexOf(soldOutLabels[j]) !== -1) {
+          btn.dataset.spuSoldOut = "1";
+          btn.title = "缺貨 / out of stock - selectable for Recall";
+          btn.style.outline = "1px dashed #ff4d4f";
+          btn.style.outlineOffset = "-3px";
+          break;
+        }
       }
-    }
-    btn.classList.remove(UNSEL_CLASS);
-    btn.classList.add(SEL_CLASS);
-    btn.dataset.spuForced = "1";
-  }
-
-  // React re-renders can strip the class back off, so put it back.
-  function reapplyForced() {
-    var forced = document.querySelectorAll("[data-spu-forced]");
-    for (var i = 0; i < forced.length; i++) {
-      if (!forced[i].classList.contains(SEL_CLASS)) forceSelect(forced[i]);
     }
   }
 
@@ -214,8 +207,7 @@
   var lastRun = 0;
 
   function pass() {
-    enableVariationButtons();
-    reapplyForced();
+    markSoldOut();
     ensureButton();
   }
 
@@ -232,15 +224,15 @@
   var observer = new MutationObserver(bump);
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // A click on a variation may be ignored by the page (sold out) - take it over.
+  // Picking a variation should update the button without waiting for the next
+  // mutation pass.
   document.addEventListener("click", function (e) {
     var btn = e.target && e.target.closest ? e.target.closest(VARIATION_BTN) : null;
     if (!btn) { bump(); return; }
     setTimeout(function () {
-      if (!btn.classList.contains(SEL_CLASS)) forceSelect(btn);
       var stashBtn = document.getElementById(BTN_ID);
       if (stashBtn) refreshButtonState(stashBtn, true);
-    }, 220);
+    }, 260);
   }, true);
 
   // The buy-button row renders after the first paint, so keep looking for a

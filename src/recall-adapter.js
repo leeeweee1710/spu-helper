@@ -198,6 +198,32 @@
     return s.ok ? s.text : "";
   }
 
+  // Options whose every model was sold out before src/recall-unlock.js made them
+  // selectable again. Returned as labels so the caller can mark the buttons
+  // without knowing how the tiers are laid out.
+  function soldOutOptions() {
+    var item = findItem();
+    if (!item) return { ok: false, reason: "no-item" };
+    var flags = window.SPU_RECALL_SOLD_OUT || {};
+    var models = item.models || [];
+    var labels = [];
+    (item.tier_variations || []).forEach(function (tier, t) {
+      (tier.options || []).forEach(function (option, i) {
+        if (!option) return;
+        var any = false, allSoldOut = true;
+        models.forEach(function (m) {
+          var ti = m.extinfo && m.extinfo.tier_index;
+          if (!ti || Number(ti[t]) !== i) return;
+          any = true;
+          var id = m.modelid != null ? m.modelid : m.model_id;
+          if (!flags[String(id)]) allSoldOut = false;
+        });
+        if (any && allSoldOut) labels.push(option);
+      });
+    });
+    return { ok: true, labels: labels };
+  }
+
   window.SPU_RECALL = { selection: selection, text: selectionText };
 
   // Same bridge the SPU portal adapter uses, so the (later) isolated-world
@@ -206,10 +232,10 @@
     if (ev.source !== window) return;
     var d = ev.data;
     if (!d || d.__ch !== MSG || d.dir !== "req") return;
-    if (d.action !== "recallSelection") return;
-    window.postMessage(
-      { __ch: MSG, dir: "res", id: d.id, result: selection() },
-      "*"
-    );
+    var result;
+    if (d.action === "recallSelection") result = selection();
+    else if (d.action === "soldOutOptions") result = soldOutOptions();
+    else return;
+    window.postMessage({ __ch: MSG, dir: "res", id: d.id, result: result }, "*");
   });
 })();

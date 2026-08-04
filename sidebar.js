@@ -15,6 +15,7 @@
   var exportEl = document.getElementById("export");
   var removeAllEl = document.getElementById("removeAll");
   var entries = [];
+  var lastCount = 0;
 
   function send(msg, cb) {
     try {
@@ -38,6 +39,22 @@
     }
     exportEl.textContent = "Export to clipboard(" + entries.length + ")";
     exportEl.disabled = !entries.length;
+    // New entries land at the bottom, so follow them down.
+    if (entries.length > lastCount) scrollToNewest();
+    lastCount = entries.length;
+  }
+
+  function scrollToNewest() {
+    var newest = listEl.lastElementChild;
+    if (!newest || !newest.scrollIntoView) {
+      listEl.scrollTop = listEl.scrollHeight;
+      return;
+    }
+    try {
+      newest.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (e) {
+      listEl.scrollTop = listEl.scrollHeight;
+    }
   }
 
   function cardFor(entry) {
