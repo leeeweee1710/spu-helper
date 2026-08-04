@@ -162,14 +162,21 @@
     if (area === "local" && changes.product_memory) syncUI();
   });
 
-  // Watch for scrolling / newly rendered cards, throttled to keep it cheap.
-  var timer = null;
+  // Watch for scrolling / newly rendered cards. Throttled rather than debounced:
+  // these pages mutate continuously, and a debounce kept getting pushed back so
+  // the marks only appeared once the page went quiet.
+  var GAP = 150;
+  var queued = null;
+  var lastRun = 0;
   var observer = new MutationObserver(function () {
-    clearTimeout(timer);
-    timer = setTimeout(function () {
+    if (queued) return;
+    var wait = Math.max(0, GAP - (Date.now() - lastRun));
+    queued = setTimeout(function () {
+      queued = null;
+      lastRun = Date.now();
       reportLocation();
       syncUI();
-    }, 150);
+    }, wait);
   });
   observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener("popstate", reportLocation);

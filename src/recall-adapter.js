@@ -17,6 +17,7 @@
 
   var MSG = "__spu_helper__";
   var SEP = "#|#";
+  var VAR_SEP = "|||"; // between the chosen options when a product has tiers
   // Products without variations still need a variation field. Shopee models
   // them either with no tiers at all or with one nameless, single-option tier.
   var NO_VARIATION = "no_variation";
@@ -61,6 +62,23 @@
   // ---- selection --------------------------------------------------------
   // Which option is picked in each tier, as option indices. Returns null while
   // any tier is still unchosen (Shopee only knows the model once all are set).
+  // Which option a button's text refers to. Exact first; a sold-out button can
+  // carry an extra label ("缺貨"), so fall back to the longest option contained
+  // in the text.
+  function optionIndex(opts, text) {
+    var exact = opts.indexOf(text);
+    if (exact !== -1) return exact;
+    var best = -1, bestLen = 0;
+    for (var k = 0; k < opts.length; k++) {
+      var option = (opts[k] || "").trim();
+      if (option && text.indexOf(option) !== -1 && option.length > bestLen) {
+        best = k;
+        bestLen = option.length;
+      }
+    }
+    return best;
+  }
+
   function pickedTierIndex(item) {
     var tiers = item.tier_variations || [];
     if (!tiers.length) return [];
@@ -72,7 +90,7 @@
       var opts = tiers[i].options || [];
       var idx = -1;
       for (var j = 0; j < chosen.length && idx === -1; j++) {
-        idx = opts.indexOf(chosen[j]);
+        idx = optionIndex(opts, chosen[j]);
       }
       // A tier with a single option has no picker to click - Shopee hides it -
       // so there is nothing for the annotator to choose and it counts as set.
@@ -89,12 +107,24 @@
     return true;
   }
 
+  // The chosen option of each tier, e.g. ["雙色款-白透明（送掛鉤）", "Airpods pro/pro2"].
+  // Blank options are the "no variation" placeholder, so they drop out.
+  function pickedNames(item, picked) {
+    var tiers = item.tier_variations || [];
+    var names = [];
+    (picked || []).forEach(function (idx, t) {
+      var option = (((tiers[t] && tiers[t].options) || [])[idx] || "").trim();
+      if (option) names.push(option);
+    });
+    return names;
+  }
+
   // "數量: 2盒", or "顏色: 紅色, 尺寸: L" when there are several tiers. Tiers
   // that carry neither a name nor an option are the "no variation" placeholder.
   function variationLabel(item, picked) {
     var tiers = item.tier_variations || [];
     var parts = [];
-    picked.forEach(function (idx, t) {
+    (picked || []).forEach(function (idx, t) {
       var tierName = ((tiers[t] && tiers[t].name) || "").trim();
       var option = (((tiers[t] && tiers[t].options) || [])[idx] || "").trim();
       if (!tierName && !option) return;
@@ -144,7 +174,12 @@
       return { ok: false, reason: "no-selection", url: productUrl(item) };
     }
     var id = model.modelid != null ? model.modelid : model.model_id;
-    var name = (model.name || "").trim() || NO_VARIATION;
+    // Built from the chosen options rather than model.name: Shopee joins a
+    // multi-tier name with commas, while the report wants "|||" between them.
+    var chosen = pickedNames(item, picked);
+    var name = chosen.length
+      ? chosen.join(VAR_SEP)
+      : (model.name || "").trim() || NO_VARIATION;
     var url = productUrl(item);
     return {
       ok: true,

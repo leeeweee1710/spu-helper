@@ -15,6 +15,9 @@
   var MSG = "__spu_helper__";
   var BTN_ID = "spu-stash-btn";
   var CART_TEXT = /加入購物車/;
+  var VARIATION_BTN = '[class*="selection-box-"]';
+  var SEL_CLASS = "selection-box-selected";
+  var UNSEL_CLASS = "selection-box-unselected";
 
   // ---- bridge to the MAIN-world adapter ---------------------------------
   var pending = {};
@@ -81,6 +84,12 @@
     if (!force && btn.dataset.sig === sig) return;
     btn.dataset.sig = sig;
     askAdapter("recallSelection").then(function (sel) {
+      // A timed-out bridge call (the MAIN-world adapter may not be listening
+      // yet) must not leave the signature cached, or nothing would retry.
+      if (sel && sel.reason === "timeout") {
+        btn.dataset.sig = "";
+        return;
+      }
       var ok = !!(sel && sel.ok);
       btn.dataset.ready = ok ? "1" : "";
       btn.textContent = ok ? "Stash" : "Pick a variation";
@@ -148,18 +157,99 @@
     refreshButtonState(btn);
   }
 
-  // Product pages are client-side routed and re-render on every variation
-  // click, so keep checking (throttled).
-  var timer = null;
-  var observer = new MutationObserver(function () {
-    clearTimeout(timer);
-    timer = setTimeout(ensureButton, 200);
-  });
+  // ---- out-of-stock variations -----------------------------------------
+  // A Recall annotator still has to report a sold-out variation, but Shopee
+  // disables those buttons. Re-enable them, and if the click doesn't take
+  // (React ignores a sold-out model) mark the choice ourselves - the selected
+  // class is what identifies the model, which is all the stash needs.
+  function variationButtons(root) {
+    return (root || document).querySelectorAll(VARIATION_BTN);
+  }
+
+  function enableVariationButtons() {
+    var btns = variationButtons();
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (b.disabled) b.disabled = false;
+      if (b.getAttribute("aria-disabled") === "true") b.setAttribute("aria-disabled", "false");
+      if (b.style.pointerEvents === "none") b.style.removeProperty("pointer-events");
+      var computed = window.getComputedStyle(b);
+      if (computed && computed.pointerEvents === "none") b.style.pointerEvents = "auto";
+      if (computed && computed.cursor === "not-allowed") b.style.cursor = "pointer";
+    }
+  }
+
+  // Options of the same tier sit side by side, so the clicked button's siblings
+  // are the ones to clear.
+  function forceSelect(btn) {
+    var group = btn.parentElement;
+    if (group) {
+      var siblings = variationButtons(group);
+      for (var i = 0; i < siblings.length; i++) {
+        if (siblings[i] === btn || siblings[i].parentElement !== group) continue;
+        siblings[i].classList.remove(SEL_CLASS);
+        siblings[i].classList.add(UNSEL_CLASS);
+        delete siblings[i].dataset.spuForced;
+      }
+    }
+    btn.classList.remove(UNSEL_CLASS);
+    btn.classList.add(SEL_CLASS);
+    btn.dataset.spuForced = "1";
+  }
+
+  // React re-renders can strip the class back off, so put it back.
+  function reapplyForced() {
+    var forced = document.querySelectorAll("[data-spu-forced]");
+    for (var i = 0; i < forced.length; i++) {
+      if (!forced[i].classList.contains(SEL_CLASS)) forceSelect(forced[i]);
+    }
+  }
+
+  // ---- keeping up with the page ----------------------------------------
+  // Runs at most every GAP ms, and - unlike a debounce - always runs: a product
+  // page mutates continuously (lazy images, carousels, chat widget), which used
+  // to push a debounced pass back indefinitely and delay the button.
+  var GAP = 200;
+  var queued = null;
+  var lastRun = 0;
+
+  function pass() {
+    enableVariationButtons();
+    reapplyForced();
+    ensureButton();
+  }
+
+  function bump() {
+    if (queued) return;
+    var wait = Math.max(0, GAP - (Date.now() - lastRun));
+    queued = setTimeout(function () {
+      queued = null;
+      lastRun = Date.now();
+      pass();
+    }, wait);
+  }
+
+  var observer = new MutationObserver(bump);
   observer.observe(document.body, { childList: true, subtree: true });
-  document.addEventListener("click", function () {
-    clearTimeout(timer);
-    timer = setTimeout(ensureButton, 250); // variation picked -> re-check
+
+  // A click on a variation may be ignored by the page (sold out) - take it over.
+  document.addEventListener("click", function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest(VARIATION_BTN) : null;
+    if (!btn) { bump(); return; }
+    setTimeout(function () {
+      if (!btn.classList.contains(SEL_CLASS)) forceSelect(btn);
+      var stashBtn = document.getElementById(BTN_ID);
+      if (stashBtn) refreshButtonState(stashBtn, true);
+    }, 220);
   }, true);
 
-  ensureButton();
+  // The buy-button row renders after the first paint, so keep looking for a
+  // while instead of waiting on a mutation that may never come.
+  var tries = 0;
+  var poll = setInterval(function () {
+    pass();
+    if (document.getElementById(BTN_ID) || ++tries > 60) clearInterval(poll);
+  }, 250);
+
+  pass();
 })();

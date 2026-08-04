@@ -1,10 +1,17 @@
 {
   "manifest_version": 3,
   "name": "SPU Annotation Helper",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "Custom overlay UI + WASD key remapping for the SPU pair annotation tool (spu.shopee.tw).",
-  "permissions": ["storage", "unlimitedStorage", "sidePanel"],
-  "host_permissions": ["https://spu.shopee.tw/*", "https://shopee.tw/*"],
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://spu.shopee.tw/*",
+    "https://shopee.tw/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "SPU Annotation Helper"
@@ -17,27 +24,49 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://spu.shopee.tw/annotation/*"],
-      "js": ["src/cn-variants.js", "src/page-adapter.js"],
+      "matches": [
+        "https://spu.shopee.tw/annotation/*"
+      ],
+      "js": [
+        "src/cn-variants.js",
+        "src/page-adapter.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": ["https://spu.shopee.tw/annotation/*"],
-      "js": ["src/cat-translations.js", "src/content.js"],
-      "css": ["src/overlay.css"],
+      "matches": [
+        "https://spu.shopee.tw/annotation/*"
+      ],
+      "js": [
+        "src/cat-translations.js",
+        "src/content.js"
+      ],
+      "css": [
+        "src/overlay.css"
+      ],
       "run_at": "document_idle",
       "world": "ISOLATED"
     },
     {
-      "matches": ["https://shopee.tw/*"],
-      "js": ["src/recall-adapter.js"],
+      "matches": [
+        "https://shopee.tw/*"
+      ],
+      "js": [
+        "src/recall-adapter.js"
+      ],
       "run_at": "document_idle",
       "world": "MAIN"
     },
     {
-      "matches": ["https://shopee.tw/*"],
-      "js": ["src/product-key.js", "src/recall-duplicates.js", "src/recall-stash.js"],
+      "matches": [
+        "https://shopee.tw/*"
+      ],
+      "js": [
+        "src/product-key.js",
+        "src/recall-duplicates.js",
+        "src/recall-stash.js"
+      ],
       "run_at": "document_idle",
       "world": "ISOLATED"
     }
