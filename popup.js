@@ -8,6 +8,8 @@ var DEFAULTS = {
   autoNextOnClick: true,
   autoNextOnCustom: true,
   pageSize: 100,
+  // ---- Recall task ----
+  recallEnabled: true,
   keybindings: {
     next: ["w", "i"],
     prev: ["s", "k"],
@@ -36,10 +38,59 @@ var els = {
   autoNextOnClick: document.getElementById("autoNextOnClick"),
   autoNextOnCustom: document.getElementById("autoNextOnCustom"),
   smartHints: document.getElementById("smartHints"),
+  recallEnabled: document.getElementById("recallEnabled"),
   smartHintsMinLen: document.getElementById("smartHintsMinLen"),
   pageSize: document.getElementById("pageSize"),
   status: document.getElementById("status"),
 };
+
+// ---- task categories --------------------------------------------------
+// Settings are grouped per annotation task. The bar opens on whichever task the
+// current tab is on, and marks it, but either can be browsed freely.
+var CATEGORIES = ["pair", "recall"];
+
+function showCategory(cat) {
+  if (CATEGORIES.indexOf(cat) === -1) cat = "pair";
+  CATEGORIES.forEach(function (c) {
+    var panel = document.getElementById("cat-" + c);
+    if (panel) panel.classList.toggle("show", c === cat);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (b) {
+    b.classList.toggle("active", b.dataset.cat === cat);
+  });
+}
+
+// Which task a tab URL belongs to: the SPU portal says so in its path, and a
+// storefront page is where the Recall task sends you.
+function categoryForUrl(url) {
+  if (!url) return null;
+  if (url.indexOf("/annotation/task/recall") !== -1) return "recall";
+  if (url.indexOf("/annotation/task/pair") !== -1) return "pair";
+  if (/^https:\/\/shopee\.tw\//.test(url)) return "recall";
+  return null;
+}
+
+function markCurrentTask(cat) {
+  Array.prototype.forEach.call(document.querySelectorAll(".tab-here"), function (el) {
+    el.classList.toggle("show", !!cat && el.dataset.cat === cat);
+  });
+}
+
+function detectCategory(cb) {
+  try {
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+      cb(categoryForUrl(tabs && tabs[0] && tabs[0].url));
+    });
+  } catch (e) {
+    cb(null);
+  }
+}
+
+Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (b) {
+  b.addEventListener("click", function () {
+    showCategory(b.dataset.cat);
+  });
+});
 
 // ---- helpers ----------------------------------------------------------
 // Save immediately on any change and briefly flash "Saved".
@@ -80,6 +131,7 @@ function render() {
   els.autoNextOnClick.checked = !!current.autoNextOnClick;
   els.autoNextOnCustom.checked = !!current.autoNextOnCustom;
   els.smartHints.checked = !!current.smartHints;
+  els.recallEnabled.checked = !!current.recallEnabled;
   els.smartHintsMinLen.value = current.smartHintsMinLen;
   els.pageSize.value = String(current.pageSize);
   renderKeys();
@@ -154,6 +206,10 @@ function load() {
     });
     render();
   });
+  detectCategory(function (cat) {
+    markCurrentTask(cat);
+    showCategory(cat || "pair"); // open on the task being worked on
+  });
 }
 
 els.enabled.addEventListener("change", function () {
@@ -170,6 +226,10 @@ els.autoNextOnClick.addEventListener("change", function () {
 });
 els.autoNextOnCustom.addEventListener("change", function () {
   current.autoNextOnCustom = els.autoNextOnCustom.checked;
+  persist();
+});
+els.recallEnabled.addEventListener("change", function () {
+  current.recallEnabled = els.recallEnabled.checked;
   persist();
 });
 els.smartHints.addEventListener("change", function () {

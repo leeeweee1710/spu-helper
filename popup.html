@@ -7,108 +7,132 @@
   <body>
     <h1>SPU Annotation Helper</h1>
 
-    <div class="row toggle-row">
-      <label for="enabled">Custom UI</label>
-      <label class="switch">
-        <input type="checkbox" id="enabled" />
-        <span class="slider"></span>
-      </label>
+    <div class="tabs" id="tabs">
+      <button type="button" class="tab" data-cat="pair">
+        Pair<span class="tab-here" data-cat="pair">current</span>
+      </button>
+      <button type="button" class="tab" data-cat="recall">
+        Recall<span class="tab-here" data-cat="recall">current</span>
+      </button>
     </div>
 
-    <div class="row toggle-row">
-      <label for="autoKeyY">Auto key-in "Y" on new product</label>
-      <label class="switch">
-        <input type="checkbox" id="autoKeyY" />
-        <span class="slider"></span>
-      </label>
+    <!-- ============================ PAIR ============================ -->
+    <div class="cat" id="cat-pair">
+      <div class="row toggle-row">
+        <label for="enabled">Custom UI</label>
+        <label class="switch">
+          <input type="checkbox" id="enabled" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="row toggle-row">
+        <label for="autoKeyY">Auto key-in "Y" on new product</label>
+        <label class="switch">
+          <input type="checkbox" id="autoKeyY" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="row toggle-row">
+        <label for="autoNextOnClick">Next product after clicking an option</label>
+        <label class="switch">
+          <input type="checkbox" id="autoNextOnClick" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="row toggle-row">
+        <label for="autoNextOnCustom">Next product after a custom reason</label>
+        <label class="switch">
+          <input type="checkbox" id="autoNextOnCustom" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="row toggle-row">
+        <label for="smartHints">Smart hints (replace native hints)</label>
+        <label class="switch">
+          <input type="checkbox" id="smartHints" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="row kb-row">
+        <label for="smartHintsMinLen">Min match length</label>
+        <input type="number" id="smartHintsMinLen" min="2" max="20" step="1" />
+      </div>
+
+      <div class="row kb-row">
+        <label for="pageSize">Products per page</label>
+        <select id="pageSize">
+          <option value="10">10 / page</option>
+          <option value="20">20 / page</option>
+          <option value="50">50 / page</option>
+          <option value="100">100 / page</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label>Website layout sizes</label>
+        <button id="resetLayout" type="button" class="secondary small-btn">Reset</button>
+      </div>
+
+      <h2>Key bindings</h2>
+      <p class="hint">Click "+ key" and press a key. Each action can have several keys; click a key's ✕ to remove it.</p>
+
+      <div class="kb-group" data-key="next">
+        <label>Next product</label>
+        <div class="kb-keys" id="keys-next"></div>
+      </div>
+      <div class="kb-group" data-key="prev">
+        <label>Previous product</label>
+        <div class="kb-keys" id="keys-prev"></div>
+      </div>
+      <div class="kb-group" data-key="optionUp">
+        <label>Option up</label>
+        <div class="kb-keys" id="keys-optionUp"></div>
+      </div>
+      <div class="kb-group" data-key="optionDown">
+        <label>Option down</label>
+        <div class="kb-keys" id="keys-optionDown"></div>
+      </div>
+      <div class="kb-group" data-key="submitNext">
+        <label>Submit + next page</label>
+        <div class="kb-keys" id="keys-submitNext"></div>
+      </div>
+      <div class="kb-group" data-key="enlarge">
+        <label>Enlarge both images</label>
+        <div class="kb-keys" id="keys-enlarge"></div>
+      </div>
+      <div class="kb-group" data-key="scrollDown">
+        <label>Scroll products down</label>
+        <div class="kb-keys" id="keys-scrollDown"></div>
+      </div>
+      <div class="kb-group" data-key="gotoFirst">
+        <label>Go to first row</label>
+        <div class="kb-keys" id="keys-gotoFirst"></div>
+      </div>
+      <div class="kb-group" data-key="gotoLast">
+        <label>Go to last row</label>
+        <div class="kb-keys" id="keys-gotoLast"></div>
+      </div>
+      <div class="kb-group" data-key="nextImage">
+        <label>Next image pair</label>
+        <div class="kb-keys" id="keys-nextImage"></div>
+      </div>
     </div>
 
-    <div class="row toggle-row">
-      <label for="autoNextOnClick">Next product after clicking an option</label>
-      <label class="switch">
-        <input type="checkbox" id="autoNextOnClick" />
-        <span class="slider"></span>
-      </label>
-    </div>
-
-    <div class="row toggle-row">
-      <label for="autoNextOnCustom">Next product after a custom reason</label>
-      <label class="switch">
-        <input type="checkbox" id="autoNextOnCustom" />
-        <span class="slider"></span>
-      </label>
-    </div>
-
-    <div class="row toggle-row">
-      <label for="smartHints">Smart hints (replace native hints)</label>
-      <label class="switch">
-        <input type="checkbox" id="smartHints" />
-        <span class="slider"></span>
-      </label>
-    </div>
-
-    <div class="row kb-row">
-      <label for="smartHintsMinLen">Min match length</label>
-      <input type="number" id="smartHintsMinLen" min="2" max="20" step="1" />
-    </div>
-
-    <div class="row kb-row">
-      <label for="pageSize">Products per page</label>
-      <select id="pageSize">
-        <option value="10">10 / page</option>
-        <option value="20">20 / page</option>
-        <option value="50">50 / page</option>
-        <option value="100">100 / page</option>
-      </select>
-    </div>
-
-    <div class="row">
-      <label>Website layout sizes</label>
-      <button id="resetLayout" type="button" class="secondary small-btn">Reset</button>
-    </div>
-
-    <h2>Key bindings</h2>
-    <p class="hint">Click "+ key" and press a key. Each action can have several keys; click a key's ✕ to remove it.</p>
-
-    <div class="kb-group" data-key="next">
-      <label>Next product</label>
-      <div class="kb-keys" id="keys-next"></div>
-    </div>
-    <div class="kb-group" data-key="prev">
-      <label>Previous product</label>
-      <div class="kb-keys" id="keys-prev"></div>
-    </div>
-    <div class="kb-group" data-key="optionUp">
-      <label>Option up</label>
-      <div class="kb-keys" id="keys-optionUp"></div>
-    </div>
-    <div class="kb-group" data-key="optionDown">
-      <label>Option down</label>
-      <div class="kb-keys" id="keys-optionDown"></div>
-    </div>
-    <div class="kb-group" data-key="submitNext">
-      <label>Submit + next page</label>
-      <div class="kb-keys" id="keys-submitNext"></div>
-    </div>
-    <div class="kb-group" data-key="enlarge">
-      <label>Enlarge both images</label>
-      <div class="kb-keys" id="keys-enlarge"></div>
-    </div>
-    <div class="kb-group" data-key="scrollDown">
-      <label>Scroll products down</label>
-      <div class="kb-keys" id="keys-scrollDown"></div>
-    </div>
-    <div class="kb-group" data-key="gotoFirst">
-      <label>Go to first row</label>
-      <div class="kb-keys" id="keys-gotoFirst"></div>
-    </div>
-    <div class="kb-group" data-key="gotoLast">
-      <label>Go to last row</label>
-      <div class="kb-keys" id="keys-gotoLast"></div>
-    </div>
-    <div class="kb-group" data-key="nextImage">
-      <label>Next image pair</label>
-      <div class="kb-keys" id="keys-nextImage"></div>
+    <!-- =========================== RECALL =========================== -->
+    <div class="cat" id="cat-recall">
+      <div class="row toggle-row">
+        <label for="recallEnabled">Custom UI</label>
+        <label class="switch">
+          <input type="checkbox" id="recallEnabled" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <p class="hint">More Recall settings will land here as the features are built.</p>
     </div>
 
     <div class="actions">

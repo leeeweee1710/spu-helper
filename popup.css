@@ -20,6 +20,65 @@ h2 {
   color: #374151;
 }
 
+/* task category bar */
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+
+.tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 2px solid #cfd8e3;
+  border-radius: 8px;
+  background: #f4f6f8;
+  color: #37475a;
+  cursor: pointer;
+}
+
+.tab.active {
+  border-color: #2975dd;
+  background: #2975dd;
+  color: #fff;
+}
+
+/* marks whichever task the current tab is on */
+.tab-here {
+  display: none;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  background: #dce8f8;
+  color: #1a4b8f;
+}
+
+.tab-here.show {
+  display: inline-block;
+}
+
+.tab.active .tab-here {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
+.cat {
+  display: none;
+}
+
+.cat.show {
+  display: block;
+}
+
 .hint {
   font-size: 11px;
   color: #6b7280;
