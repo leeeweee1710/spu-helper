@@ -1,13 +1,25 @@
 {
   "manifest_version": 3,
   "name": "SPU Annotation Helper",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Custom overlay UI + WASD key remapping for the SPU pair annotation tool (spu.shopee.tw).",
   "permissions": ["storage", "unlimitedStorage"],
   "host_permissions": ["https://spu.shopee.tw/*", "https://shopee.tw/*"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "SPU Annotation Helper"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "commands": {
+    "clear-memory": {
+      "suggested_key": {
+        "default": "Alt+Shift+X",
+        "mac": "Command+Shift+X"
+      },
+      "description": "Clear the visited-product memory (duplicate highlighting)"
+    }
   },
   "content_scripts": [
     {
@@ -28,6 +40,12 @@
       "js": ["src/recall-adapter.js"],
       "run_at": "document_idle",
       "world": "MAIN"
+    },
+    {
+      "matches": ["https://shopee.tw/*"],
+      "js": ["src/product-key.js", "src/recall-duplicates.js"],
+      "run_at": "document_idle",
+      "world": "ISOLATED"
     }
   ]
 }
