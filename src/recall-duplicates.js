@@ -59,6 +59,40 @@
     delete item.dataset.appliedStatus;
   }
 
+  // ---- sponsored blocks --------------------------------------------------
+  // Shopee slots a sponsored shop block into the results, carrying a small "Ad"
+  // marker and a few of that shop's products. Those are not search results, and
+  // marking one of them (the seed tile in particular) is misleading - so the
+  // block is hidden and its tiles are kept out of the marking entirely.
+  var AD_SECTION = ".shopee-header-section, [data-sqe='ad']";
+  var AD_LABEL = /^(ad|ads|廣告)$/i;
+
+  function isAdSection(section) {
+    var nodes = section.querySelectorAll("*");
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].children.length !== 0) continue;
+      if (AD_LABEL.test((nodes[i].textContent || "").trim())) return true;
+    }
+    return false;
+  }
+
+  // Hidden rather than removed: the block is React-managed, and pulling it out
+  // of the tree can break the next render.
+  function hideAdSections() {
+    var sections = document.querySelectorAll(AD_SECTION);
+    for (var i = 0; i < sections.length; i++) {
+      var section = sections[i];
+      if (section.dataset.spuAd) continue;
+      if (!isAdSection(section)) continue;
+      section.dataset.spuAd = "1";
+      section.style.display = "none";
+    }
+  }
+
+  function insideAd(el) {
+    return !!(el.closest && el.closest("[data-spu-ad]"));
+  }
+
   // Does el hold a product other than `key`? (bails out on the first one)
   function holdsOtherProducts(el, key) {
     var anchors = el.querySelectorAll("a[href]");
@@ -103,11 +137,12 @@
 
   // One entry per card on the page, whatever the listing looks like.
   function cardsOnPage() {
+    hideAdSections(); // before deriving cards, so ad tiles never become one
     var anchors = document.querySelectorAll("a[href]");
     var cards = [], seen = [];
     for (var i = 0; i < anchors.length; i++) {
       var key = getProductKey(anchors[i].href);
-      if (!key) continue;
+      if (!key || insideAd(anchors[i])) continue;
       var card = cardCache.get(anchors[i]);
       // Re-derive when the cached box stopped being this product's own: these
       // pages fill in lazily, so a box that held one product at first can end

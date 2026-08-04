@@ -55,10 +55,12 @@
     return null;
   }
 
-  // "ready" (can stash), "done" (this model is already on the list) or "idle".
+  // "ready" (can stash), "done" (already on the list), "seed" (this IS the
+  // product being searched for - must never be stashed) or "idle".
   var LOOKS = {
     ready: { border: "#1d8a3f", background: "#eaf7ee", color: "#12772f", cursor: "pointer" },
     done: { border: "#1d8a3f", background: "#1d8a3f", color: "#fff", cursor: "default" },
+    seed: { border: "#1e88e5", background: "#1e88e5", color: "#fff", cursor: "not-allowed" },
     idle: { border: "#c9ccd1", background: "#f4f5f6", color: "#9aa0a6", cursor: "not-allowed" },
   };
 
@@ -76,18 +78,28 @@
   // Model ids already on the stash list, so an annotator can see at a glance
   // that this variation has been reported. Kept in step with the sidebar.
   var stashed = {};
-  function loadStashed(cb) {
+  var seedKey = "";
+
+  function loadState(cb) {
     try {
-      chrome.storage.local.get({ recall_stash: [] }, function (r) {
+      chrome.storage.local.get({ recall_stash: [], recall_seed: null }, function (r) {
         stashed = {};
         ((r && r.recall_stash) || []).forEach(function (e) {
           if (e && e.modelId) stashed[String(e.modelId)] = true;
         });
+        seedKey = (r && r.recall_seed && r.recall_seed.key) || "";
         cb && cb();
       });
     } catch (e) {
       cb && cb();
     }
+  }
+
+  // Is the product being viewed the task's own seed? Taken from the url, so it
+  // is known before any variation is picked.
+  function onSeedProduct() {
+    if (!seedKey) return false;
+    return getProductKey(location.href) === seedKey;
   }
 
   // What the page currently shows, so a busy page (lazy loading fires the
@@ -105,6 +117,16 @@
     var sig = selectionSignature();
     if (!force && btn.dataset.sig === sig) return;
     btn.dataset.sig = sig;
+    // The seed is the product we were sent to find, not a result - stashing it
+    // would be a mistake, so say so instead of offering the button.
+    if (onSeedProduct()) {
+      btn.dataset.ready = "";
+      btn.dataset.modelId = "";
+      btn.textContent = "SEED - don't stash";
+      btn.title = "This is the task's own product (the seed), not a search result";
+      styleButton(btn, "seed");
+      return;
+    }
     askAdapter("recallSelection").then(function (sel) {
       // A timed-out bridge call (the MAIN-world adapter may not be listening
       // yet) must not leave the signature cached, or nothing would retry.
@@ -264,10 +286,11 @@
     }, 260);
   }, true);
 
-  // Deleting from the sidebar (or another tab stashing) has to show up here.
+  // Deleting from the sidebar (or another tab stashing) has to show up here, and
+  // so does moving to the next task, which swaps the seed.
   chrome.storage.onChanged.addListener(function (changes, area) {
-    if (area !== "local" || !changes.recall_stash) return;
-    loadStashed(function () {
+    if (area !== "local" || (!changes.recall_stash && !changes.recall_seed)) return;
+    loadState(function () {
       var btn = document.getElementById(BTN_ID);
       if (btn) refreshButtonState(btn, true);
     });
@@ -281,6 +304,7 @@
     if (document.getElementById(BTN_ID) || ++tries > 60) clearInterval(poll);
   }, 250);
 
-  // Know what is already stashed before the button is first drawn.
-  loadStashed(pass);
+  // Know what is already stashed, and whether this is the seed, before the
+  // button is first drawn.
+  loadState(pass);
 })();
