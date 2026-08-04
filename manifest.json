@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SPU Annotation Helper",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Custom overlay UI + WASD key remapping for the SPU pair annotation tool (spu.shopee.tw).",
   "permissions": ["storage", "unlimitedStorage", "sidePanel"],
   "host_permissions": ["https://spu.shopee.tw/*", "https://shopee.tw/*"],

@@ -13,7 +13,13 @@
 (function () {
   "use strict";
 
+  // Known card containers on the classic search results. Other listings ("you
+  // may also like", recommendation rails) use hashed class names and wrap the
+  // link in display:contents elements, so cards are derived from the product
+  // links instead - see cardFor().
   var ITEM_SELECTOR = '.shopee-search-item-result__item, [data-sqe="item"]';
+  var MAX_CARD_HOPS = 8;
+  var cardCache = new WeakMap(); // product link -> the box we mark
 
   var BADGE_STYLE =
     "position:absolute; top:0; left:0; color:white; padding:4px 8px;" +
@@ -35,14 +41,55 @@
     delete item.dataset.appliedStatus;
   }
 
-  // First anchor in the card that actually points at a product.
-  function findProductKey(item) {
-    var anchors = item.querySelectorAll("a[href]");
+  // Does el hold a product other than `key`? (bails out on the first one)
+  function holdsOtherProducts(el, key) {
+    var anchors = el.querySelectorAll("a[href]");
+    for (var i = 0; i < anchors.length; i++) {
+      var k = getProductKey(anchors[i].href);
+      if (k && k !== key) return true;
+    }
+    return false;
+  }
+
+  // display:contents wrappers have no box of their own, so a border on them
+  // draws nothing.
+  function hasBox(el) {
+    return el.offsetWidth > 0 || el.offsetHeight > 0;
+  }
+
+  // The card is the largest box that still belongs to this one product: climb
+  // from its link until the parent starts holding other products. A known card
+  // container wins outright.
+  function cardFor(anchor, key) {
+    var node = anchor, best = null, hops = 0;
+    while (node && hops++ < MAX_CARD_HOPS) {
+      if (node.matches && node.matches(ITEM_SELECTOR)) return node;
+      if (hasBox(node)) best = node;
+      var parent = node.parentElement;
+      if (!parent || parent === document.body || parent === document.documentElement) break;
+      if (holdsOtherProducts(parent, key)) break;
+      node = parent;
+    }
+    return best;
+  }
+
+  // One entry per card on the page, whatever the listing looks like.
+  function cardsOnPage() {
+    var anchors = document.querySelectorAll("a[href]");
+    var cards = [], seen = [];
     for (var i = 0; i < anchors.length; i++) {
       var key = getProductKey(anchors[i].href);
-      if (key) return key;
+      if (!key) continue;
+      var card = cardCache.get(anchors[i]);
+      if (!card || !card.isConnected || !card.contains(anchors[i])) {
+        card = cardFor(anchors[i], key);
+        if (card) cardCache.set(anchors[i], card);
+      }
+      if (!card || seen.indexOf(card) !== -1) continue; // image + title link to the same product
+      seen.push(card);
+      cards.push({ el: card, key: key });
     }
-    return null;
+    return cards;
   }
 
   function syncUI() {
@@ -50,10 +97,12 @@
     chrome.storage.local.get(["product_memory"], function (res) {
       if (chrome.runtime.lastError) return;
       var memory = res.product_memory || {};
-      var items = document.querySelectorAll(ITEM_SELECTOR);
-      for (var i = 0; i < items.length; i++) {
-        var item = items[i];
-        var key = findProductKey(item);
+      var cards = cardsOnPage();
+      var live = [];
+      for (var i = 0; i < cards.length; i++) {
+        var item = cards[i].el;
+        var key = cards[i].key;
+        live.push(item);
         var status = key && STATUS_STYLES[memory[key]] ? memory[key] : "";
 
         // Skip cards already in the right state - this runs on every scroll.
@@ -79,6 +128,13 @@
         badge.innerText = style.label;
         badge.style.cssText = BADGE_STYLE + "background:" + style.color + ";";
         item.dataset.appliedStatus = status;
+      }
+
+      // A re-render can leave a marked box that is no longer a card (or whose
+      // link changed), so strip anything we marked that is not a card now.
+      var marked = document.querySelectorAll("[data-applied-status]");
+      for (var j = 0; j < marked.length; j++) {
+        if (live.indexOf(marked[j]) === -1) resetItem(marked[j]);
       }
     });
   }
