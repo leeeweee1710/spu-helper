@@ -257,6 +257,16 @@ document.getElementById("reset").addEventListener("click", function () {
   persist();
 });
 
+// Clicking here is a real user gesture, which is what sidePanel.open() wants.
+document.getElementById("openSidebar").addEventListener("click", function () {
+  chrome.windows.getCurrent(function (win) {
+    try {
+      chrome.sidePanel.open(win && win.id != null ? { windowId: win.id } : {});
+    } catch (e) {}
+    window.close();
+  });
+});
+
 // Forget the remembered website splitter sizes (applies immediately).
 document.getElementById("resetLayout").addEventListener("click", function () {
   chrome.storage.sync.set({ layoutSizes: null }, function () {

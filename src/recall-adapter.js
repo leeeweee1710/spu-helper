@@ -20,14 +20,17 @@
   var SELECTED = ".selection-box-selected"; // variation button, once picked
 
   // ---- item data --------------------------------------------------------
-  // Walk up the fiber from any variation button (or the page root) until a
-  // component prop holds the item.
+  // Anything inside the product page's React tree can reach the item prop by
+  // walking up the fiber. Variation buttons are absent when there is nothing to
+  // pick, so the title and the buy-button row are the anchors that always
+  // exist. (#main is the React *container* - its ancestors hold nothing.)
+  var ITEM_ANCHORS =
+    ".selection-box-selected, .selection-box-unselected, h1, .high-end-button-group button";
+
   function findItem() {
-    var starts = Array.prototype.slice
-      .call(document.querySelectorAll(SELECTED + ", .selection-box-unselected"))
-      .concat([document.querySelector("#main"), document.body]);
-    for (var i = 0; i < starts.length; i++) {
-      var item = itemFromNode(starts[i]);
+    var anchors = document.querySelectorAll(ITEM_ANCHORS);
+    for (var i = 0; i < anchors.length && i < 30; i++) {
+      var item = itemFromNode(anchors[i]);
       if (item) return item;
     }
     return null;
@@ -61,7 +64,6 @@
     var chosen = Array.prototype.slice
       .call(document.querySelectorAll(SELECTED))
       .map(function (b) { return (b.textContent || "").trim(); });
-    if (!chosen.length) return null;
     var out = [];
     for (var i = 0; i < tiers.length; i++) {
       var opts = tiers[i].options || [];
@@ -69,6 +71,9 @@
       for (var j = 0; j < chosen.length && idx === -1; j++) {
         idx = opts.indexOf(chosen[j]);
       }
+      // A tier with a single option has no picker to click - Shopee hides it -
+      // so there is nothing for the annotator to choose and it counts as set.
+      if (idx === -1 && opts.length === 1) idx = 0;
       if (idx === -1) return null; // this tier hasn't been picked yet
       out.push(idx);
     }
@@ -81,12 +86,21 @@
     return true;
   }
 
+  // "數量: 2盒", or "顏色: 紅色, 尺寸: L" when there are several tiers.
+  function variationLabel(item, picked) {
+    var tiers = item.tier_variations || [];
+    return picked
+      .map(function (idx, t) {
+        return (tiers[t].name || "") + ": " + ((tiers[t].options || [])[idx] || "");
+      })
+      .join(", ");
+  }
+
   // The model behind the current selection: matched on tier_index, falling back
   // to the model name ("2盒", or "紅色,L" when there are several tiers).
-  function selectedModel(item) {
+  function selectedModel(item, picked) {
     var models = item.models || [];
     if (!models.length) return null;
-    var picked = pickedTierIndex(item);
     if (picked === null) return null;
     if (!picked.length && models.length === 1) return models[0]; // no variations
     var i;
@@ -111,12 +125,17 @@
   }
 
   // ---- public shape -----------------------------------------------------
-  // { ok, text, modelId, name, url } - `text` is the line to report.
+  // { ok, text, modelId, name, url, title, variation, key } - `text` is the
+  // line to report; the rest is what the stash list shows.
   function selection() {
     var item = findItem();
     if (!item) return { ok: false, reason: "no-item" };
-    var model = selectedModel(item);
-    if (!model) return { ok: false, reason: "no-selection", url: productUrl(item) };
+    var picked = pickedTierIndex(item);
+    var model = selectedModel(item, picked);
+    if (!model) {
+      // Every tier has to be chosen before Shopee knows which model it is.
+      return { ok: false, reason: "no-selection", url: productUrl(item) };
+    }
     var id = model.modelid != null ? model.modelid : model.model_id;
     var name = (model.name || "").trim();
     var url = productUrl(item);
@@ -125,6 +144,9 @@
       modelId: String(id),
       name: name,
       url: url,
+      title: (item.title || "").trim(),
+      variation: variationLabel(item, picked || []),
+      key: item.shop_id + "." + item.item_id,
       text: String(id) + SEP + name + SEP + url,
     };
   }
