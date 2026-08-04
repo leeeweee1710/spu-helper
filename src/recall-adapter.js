@@ -17,6 +17,9 @@
 
   var MSG = "__spu_helper__";
   var SEP = "#|#";
+  // Products without variations still need a variation field. Shopee models
+  // them either with no tiers at all or with one nameless, single-option tier.
+  var NO_VARIATION = "no_variation";
   var SELECTED = ".selection-box-selected"; // variation button, once picked
 
   // ---- item data --------------------------------------------------------
@@ -86,14 +89,18 @@
     return true;
   }
 
-  // "數量: 2盒", or "顏色: 紅色, 尺寸: L" when there are several tiers.
+  // "數量: 2盒", or "顏色: 紅色, 尺寸: L" when there are several tiers. Tiers
+  // that carry neither a name nor an option are the "no variation" placeholder.
   function variationLabel(item, picked) {
     var tiers = item.tier_variations || [];
-    return picked
-      .map(function (idx, t) {
-        return (tiers[t].name || "") + ": " + ((tiers[t].options || [])[idx] || "");
-      })
-      .join(", ");
+    var parts = [];
+    picked.forEach(function (idx, t) {
+      var tierName = ((tiers[t] && tiers[t].name) || "").trim();
+      var option = (((tiers[t] && tiers[t].options) || [])[idx] || "").trim();
+      if (!tierName && !option) return;
+      parts.push(tierName ? tierName + ": " + option : option);
+    });
+    return parts.length ? parts.join(", ") : NO_VARIATION;
   }
 
   // The model behind the current selection: matched on tier_index, falling back
@@ -137,7 +144,7 @@
       return { ok: false, reason: "no-selection", url: productUrl(item) };
     }
     var id = model.modelid != null ? model.modelid : model.model_id;
-    var name = (model.name || "").trim();
+    var name = (model.name || "").trim() || NO_VARIATION;
     var url = productUrl(item);
     return {
       ok: true,
