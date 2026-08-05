@@ -75,7 +75,7 @@
     var body = document.createElement("button");
     body.type = "button";
     body.className = "card-body";
-    body.title = entry.text || entry.url;
+    body.title = entry.title || entry.text || entry.url;
 
     var title = document.createElement("span");
     title.className = "card-title";
@@ -84,6 +84,7 @@
     var variation = document.createElement("span");
     variation.className = "card-variation";
     variation.textContent = entry.variation || entry.name || "";
+    variation.title = variation.textContent;
 
     body.appendChild(title);
     body.appendChild(variation);
