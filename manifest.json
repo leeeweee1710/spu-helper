@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "SPU Annotation Helper",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "description": "Comprehensive toolkit for annotating at Shopee",
   "permissions": [
     "storage",
     "unlimitedStorage",
-    "sidePanel"
+    "sidePanel",
+    "clipboardRead"
   ],
   "host_permissions": [
     "https://spu.shopee.tw/*",
@@ -85,7 +86,9 @@
       "js": [
         "src/product-key.js",
         "src/recall-duplicates.js",
-        "src/recall-stash.js"
+        "src/recall-stash.js",
+        "src/recall-declutter.js",
+        "src/recall-clipboard-search.js"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"
