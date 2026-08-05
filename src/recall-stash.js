@@ -175,7 +175,7 @@
       btn.dataset.done = already ? "1" : "";
       btn.dataset.seed = "";
       btn.dataset.modelId = ok ? String(sel.modelId) : "";
-      btn.textContent = already ? "Stashed ✓ / close" : ok ? "Stash" : "Pick a variation / close";
+      btn.textContent = already ? "Stashed ✔️ / close" : ok ? "Stash" : "Pick a variation / close";
       btn.title = already
         ? sel.name + " is already on the Recall list - click to close this tab"
         : ok
@@ -206,7 +206,7 @@
         },
         function () {
           if (!chrome.runtime.lastError) stashed[String(sel.modelId)] = true;
-          flash(btn, chrome.runtime.lastError ? "Failed" : "Stashed ✓");
+          flash(btn, chrome.runtime.lastError ? "Failed" : "Stashed ✔️");
         }
       );
     });

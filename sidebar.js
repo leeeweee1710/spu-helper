@@ -82,7 +82,7 @@
     var del = document.createElement("button");
     del.type = "button";
     del.className = "card-del";
-    del.textContent = "🗑";
+    del.textContent = "🗑️";
     del.title = "Remove from the list";
     del.addEventListener("click", function () {
       send({ action: "stash_remove", modelId: entry.modelId });
@@ -139,7 +139,7 @@
     if (!entries.length) return;
     var text = outputText();
     var restore = "Export to clipboard(" + entries.length + ")";
-    var done = function () { flash(exportEl, "Copied ✓", restore); };
+    var done = function () { flash(exportEl, "Copied ✔️", restore); };
     var failed = function () { flash(exportEl, "Copy failed", restore); };
     try {
       navigator.clipboard.writeText(text).then(done, function () {
