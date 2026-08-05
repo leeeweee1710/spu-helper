@@ -112,6 +112,20 @@ chrome.runtime.onMessage.addListener(function (request, sender, respond) {
   else if (request.action === "stash_add") stashAdd(request.entry);
   else if (request.action === "stash_remove") stashRemove(request.modelId);
   else if (request.action === "stash_clear") stashClear();
+  else if (request.action === "close_tab") closeTab(sender);
   else return;
   respond && respond({ ok: true });
 });
+
+// A page cannot close its own tab, so the stash button asks us to. The current
+// product goes with it - nothing is being viewed once the tab is gone.
+function closeTab(sender) {
+  var tabId = sender && sender.tab && sender.tab.id;
+  if (tabId == null) return;
+  try {
+    chrome.storage.local.set({ recall_current: null });
+  } catch (e) {}
+  try {
+    chrome.tabs.remove(tabId);
+  } catch (e) {}
+}

@@ -45,6 +45,17 @@ body {
   background: #0b0b0b;
 }
 
+/* entries belonging to the product open in the browser right now */
+.card.current {
+  border-color: #1e88e5;
+  background: #0d2233;
+  box-shadow: 0 0 0 1px rgba(30, 136, 229, 0.55);
+}
+
+.card.current .card-title {
+  color: #9fd0ff;
+}
+
 /* delete column */
 .card-del {
   flex: 0 0 54px;

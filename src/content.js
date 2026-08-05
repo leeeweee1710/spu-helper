@@ -1591,7 +1591,7 @@
       .map(function (iv) { return mmToStr(iv[0]) + "–" + mmToStr(iv[1]); })
       .join(", ");
     kpiPanelEl.querySelector("#spu-kpi-info").innerHTML =
-      "Arrive <b>" + mmToStr(sch.s) + "</b> · Leave <b>" + mmToStr(sch.e) + "</b><br>" +
+      "Arrive <b>" + mmToStr(sch.s) + "</b> / Leave <b>" + mmToStr(sch.e) + "</b><br>" +
       "Working: <b>" + (kpiWorkingMin(sch.s, sch.e) / 60).toFixed(1) + "h</b> (lunch 12:30–13:30)" +
       (slack ? "<br>Slack off: <b>" + slack + "</b>" : "");
   }

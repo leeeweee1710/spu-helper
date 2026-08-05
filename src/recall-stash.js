@@ -59,7 +59,7 @@
   // product being searched for - must never be stashed) or "idle".
   var LOOKS = {
     ready: { border: "#1d8a3f", background: "#eaf7ee", color: "#12772f", cursor: "pointer" },
-    done: { border: "#1d8a3f", background: "#1d8a3f", color: "#fff", cursor: "default" },
+    done: { border: "#1d8a3f", background: "#1d8a3f", color: "#fff", cursor: "pointer" },
     seed: { border: "#1e88e5", background: "#1e88e5", color: "#fff", cursor: "not-allowed" },
     idle: { border: "#c9ccd1", background: "#f4f5f6", color: "#9aa0a6", cursor: "not-allowed" },
   };
@@ -102,6 +102,39 @@
     return getProductKey(location.href) === seedKey;
   }
 
+  // ---- which product is being looked at --------------------------------
+  // Published so the sidebar can highlight the entries belonging to the product
+  // on screen. Cleared when the page goes away, so a closed tab doesn't leave a
+  // stale highlight behind.
+  var reportedKey = null;
+  function reportCurrentProduct() {
+    var key = getProductKey(location.href) || null;
+    if (key === reportedKey) return;
+    reportedKey = key;
+    try {
+      chrome.storage.local.set({
+        recall_current: key ? { key: key, url: location.href, at: Date.now() } : null,
+      });
+    } catch (e) {}
+  }
+
+  function clearCurrentProduct() {
+    reportedKey = null;
+    try {
+      chrome.storage.local.set({ recall_current: null });
+    } catch (e) {}
+  }
+
+  function closeThisTab() {
+    clearCurrentProduct();
+    try {
+      var p = chrome.runtime.sendMessage({ action: "close_tab" });
+      if (p && p.catch) p.catch(function () {});
+    } catch (e) {}
+  }
+
+  window.addEventListener("pagehide", clearCurrentProduct);
+
   // What the page currently shows, so a busy page (lazy loading fires the
   // observer constantly) doesn't cost a bridge round-trip per mutation.
   function selectionSignature() {
@@ -121,6 +154,8 @@
     // would be a mistake, so say so instead of offering the button.
     if (onSeedProduct()) {
       btn.dataset.ready = "";
+      btn.dataset.done = "";
+      btn.dataset.seed = "1";
       btn.dataset.modelId = "";
       btn.textContent = "SEED - don't stash";
       btn.title = "This is the task's own product (the seed), not a search result";
@@ -137,13 +172,15 @@
       var ok = !!(sel && sel.ok);
       var already = ok && !!stashed[String(sel.modelId)];
       btn.dataset.ready = ok && !already ? "1" : "";
+      btn.dataset.done = already ? "1" : "";
+      btn.dataset.seed = "";
       btn.dataset.modelId = ok ? String(sel.modelId) : "";
-      btn.textContent = already ? "Stashed ✓" : ok ? "Stash" : "Pick a variation";
+      btn.textContent = already ? "Stashed ✓ / close" : ok ? "Stash" : "Pick a variation / close";
       btn.title = already
-        ? sel.name + " is already on the Recall list"
+        ? sel.name + " is already on the Recall list - click to close this tab"
         : ok
         ? "Stash " + sel.name + " for the Recall list"
-        : "Choose every variation first";
+        : "Nothing to stash without a variation - click to close this tab";
       styleButton(btn, already ? "done" : ok ? "ready" : "idle");
     });
   }
@@ -181,6 +218,18 @@
     flash.timer = setTimeout(function () { refreshButtonState(btn, true); }, 1200);
   }
 
+  // Anything but "there is something to stash here" means this tab is finished
+  // with, so the click closes it. The seed is the exception: that button is a
+  // warning, and closing on it would hide the warning.
+  function onButtonClick(btn) {
+    if (btn.dataset.seed) return;
+    if (btn.dataset.ready) {
+      stash(btn);
+      return;
+    }
+    closeThisTab();
+  }
+
   function ensureButton() {
     var cart = cartButton();
     if (!cart || !cart.parentElement) return;
@@ -195,12 +244,13 @@
     btn.id = BTN_ID;
     btn.type = "button";
     styleButton(btn, "idle");
-    btn.textContent = "Pick a variation";
+    // Same label the idle state settles on, so the click never does something
+    // the button did not say it would.
+    btn.textContent = "Pick a variation / close";
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
-      if (!btn.dataset.ready) return;
-      stash(btn);
+      onButtonClick(btn);
     });
     cart.parentElement.insertBefore(btn, cart); // to the left of 加入購物車
     refreshButtonState(btn);
@@ -258,6 +308,7 @@
   var lastRun = 0;
 
   function pass() {
+    reportCurrentProduct(); // cheap: only writes when the product changed
     markSoldOut();
     ensureButton();
   }

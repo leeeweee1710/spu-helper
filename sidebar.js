@@ -16,6 +16,8 @@
   var removeAllEl = document.getElementById("removeAll");
   var entries = [];
   var lastCount = 0;
+  var currentKey = ""; // product page open in the browser right now
+  var lastCurrentKey = "";
 
   function send(msg, cb) {
     try {
@@ -42,6 +44,18 @@
     // New entries land at the bottom, so follow them down.
     if (entries.length > lastCount) scrollToNewest();
     lastCount = entries.length;
+    // Moving to another product brings its entries into view; a plain re-render
+    // must not yank the list around.
+    if (currentKey && currentKey !== lastCurrentKey) scrollToCurrent();
+    lastCurrentKey = currentKey;
+  }
+
+  function scrollToCurrent() {
+    var el = listEl.querySelector(".card.current");
+    if (!el || !el.scrollIntoView) return;
+    try {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (e) {}
   }
 
   function scrollToNewest() {
@@ -59,7 +73,11 @@
 
   function cardFor(entry) {
     var card = document.createElement("div");
-    card.className = "card";
+    // Entries for the product currently open stand out, so it is obvious what
+    // has already been reported for it.
+    var isCurrent = !!currentKey && entry.key === currentKey;
+    card.className = "card" + (isCurrent ? " current" : "");
+    if (isCurrent) card.title = "This product is open in the browser";
 
     var del = document.createElement("button");
     del.type = "button";
@@ -173,17 +191,26 @@
   });
 
   function load() {
-    chrome.storage.local.get({ recall_stash: [] }, function (r) {
+    chrome.storage.local.get({ recall_stash: [], recall_current: null }, function (r) {
       entries = (r && r.recall_stash) || [];
+      currentKey = (r && r.recall_current && r.recall_current.key) || "";
       render();
     });
   }
 
   chrome.storage.onChanged.addListener(function (changes, area) {
-    if (area === "local" && changes.recall_stash) {
+    if (area !== "local") return;
+    var touched = false;
+    if (changes.recall_stash) {
       entries = changes.recall_stash.newValue || [];
-      render();
+      touched = true;
     }
+    if (changes.recall_current) {
+      var value = changes.recall_current.newValue;
+      currentKey = (value && value.key) || "";
+      touched = true;
+    }
+    if (touched) render();
   });
 
   load();
