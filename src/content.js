@@ -1381,15 +1381,24 @@
     return { s: s, e: e };
   }
 
+  // Afternoon off is four hours of actual work, so no lunch is taken in it -
+  // you work straight through and leave.
+  function kpiHasLunch() {
+    return kpiSettings.mode !== "afternoonOff";
+  }
+
   // Slack-off blocks: the first minutes of the morning and the first minutes
   // after getting back from lunch. Clipped to the working window, so they
-  // vanish when they don't apply (e.g. arriving at 2PM has no after-lunch one).
+  // vanish when they don't apply (e.g. arriving at 2PM has no after-lunch one,
+  // and neither does a day with no lunch break at all).
   function kpiSlackBlocks() {
     var sm = kpiSettings.slackMin;
     if (!(sm > 0)) return [];
     var sch = kpiSchedule();
     var raw = [[sch.s, sch.s + sm]];
-    if (sch.s < LUNCH_END && sch.e > LUNCH_END) raw.push([LUNCH_END, LUNCH_END + sm]);
+    if (kpiHasLunch() && sch.s < LUNCH_END && sch.e > LUNCH_END) {
+      raw.push([LUNCH_END, LUNCH_END + sm]);
+    }
     var out = [];
     raw.forEach(function (iv) {
       var a = Math.max(iv[0], sch.s), b = Math.min(iv[1], sch.e);
@@ -1397,9 +1406,11 @@
     });
     return out;
   }
-  // Lunch + slack off, merged so overlapping blocks are never counted twice.
+  // Lunch (when the day has one) + slack off, merged so overlapping blocks are
+  // never counted twice.
   function kpiBreaks() {
-    var iv = [[LUNCH_START, LUNCH_END]].concat(kpiSlackBlocks());
+    var iv = kpiSlackBlocks();
+    if (kpiHasLunch()) iv = [[LUNCH_START, LUNCH_END]].concat(iv);
     iv.sort(function (x, y) { return x[0] - y[0]; });
     var out = [];
     iv.forEach(function (cur) {
@@ -1428,7 +1439,7 @@
   function kpiStatus(nowMin) {
     var sch = kpiSchedule();
     if (nowMin < sch.s || nowMin >= sch.e) return "not work time";
-    if (nowMin >= LUNCH_START && nowMin < LUNCH_END) return "lunch";
+    if (kpiHasLunch() && nowMin >= LUNCH_START && nowMin < LUNCH_END) return "lunch";
     var sl = kpiSlackBlocks();
     for (var i = 0; i < sl.length; i++) {
       if (nowMin >= sl[i][0] && nowMin < sl[i][1]) return "slack off";
@@ -1590,9 +1601,12 @@
     var slack = kpiSlackBlocks()
       .map(function (iv) { return mmToStr(iv[0]) + "–" + mmToStr(iv[1]); })
       .join(", ");
+    var lunchNote = kpiHasLunch()
+      ? "(lunch " + mmToStr(LUNCH_START) + "–" + mmToStr(LUNCH_END) + ")"
+      : "(no lunch break)";
     kpiPanelEl.querySelector("#spu-kpi-info").innerHTML =
       "Arrive <b>" + mmToStr(sch.s) + "</b> / Leave <b>" + mmToStr(sch.e) + "</b><br>" +
-      "Working: <b>" + (kpiWorkingMin(sch.s, sch.e) / 60).toFixed(1) + "h</b> (lunch 12:30–13:30)" +
+      "Working: <b>" + (kpiWorkingMin(sch.s, sch.e) / 60).toFixed(1) + "h</b> " + lunchNote +
       (slack ? "<br>Slack off: <b>" + slack + "</b>" : "");
   }
 
