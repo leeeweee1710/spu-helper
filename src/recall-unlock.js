@@ -22,6 +22,18 @@
   var soldOut = {};
   window.SPU_RECALL_SOLD_OUT = soldOut; // "<modelid>" -> true
 
+  // Only meddle with the storefront while a Recall task is being worked on.
+  // This runs at document_start in the MAIN world, where chrome.storage does
+  // not exist and an async answer would arrive after the PDP request, so
+  // src/recall-state.js mirrors the flag into localStorage for us.
+  function recallActive() {
+    try {
+      return localStorage.getItem("__spu_recall_active") === "1";
+    } catch (e) {
+      return false;
+    }
+  }
+
   function isModel(o) {
     return (
       o &&
@@ -63,6 +75,7 @@
 
   // Returns the rewritten body, or null when there is nothing to do.
   function patch(text) {
+    if (!recallActive()) return null;
     if (!text || text.indexOf("is_grayout") === -1) return null;
     var data;
     try { data = JSON.parse(text); } catch (e) { return null; }

@@ -176,8 +176,22 @@
     return null;
   }
 
+  // Marks belong to a Recall task; plain browsing gets an untouched storefront.
+  function recallActive() {
+    var state = window.SPU_RECALL_STATE;
+    return !!(state && state.isActive());
+  }
+
+  function clearAllMarks() {
+    var marked = document.querySelectorAll("[data-applied-status]");
+    for (var i = 0; i < marked.length; i++) resetItem(marked[i]);
+    var strays = document.querySelectorAll(".status-badge");
+    for (var j = 0; j < strays.length; j++) strays[j].remove();
+  }
+
   function syncUI() {
     if (!chrome.runtime || !chrome.runtime.id) return;
+    if (!recallActive()) return;
     chrome.storage.local.get(["product_memory", "recall_seed"], function (res) {
       if (chrome.runtime.lastError) return;
       var memory = res.product_memory || {};
@@ -240,6 +254,7 @@
   var lastReportedUrl = "";
   function reportLocation() {
     if (!chrome.runtime || !chrome.runtime.id) return;
+    if (!recallActive()) return; // don't record ordinary browsing as "checked"
     if (location.href === lastReportedUrl) return;
     lastReportedUrl = location.href;
     if (!getProductKey(location.href)) return;
@@ -257,6 +272,14 @@
   chrome.storage.onChanged.addListener(function (changes, area) {
     if (area === "local" && (changes.product_memory || changes.recall_seed)) syncUI();
   });
+
+  // Leaving the Recall task takes the marks with it.
+  if (window.SPU_RECALL_STATE) {
+    window.SPU_RECALL_STATE.onChange(function (on) {
+      if (on) syncUI();
+      else clearAllMarks();
+    });
+  }
 
   // Watch for scrolling / newly rendered cards. Throttled rather than debounced:
   // these pages mutate continuously, and a debounce kept getting pushed back so

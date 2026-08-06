@@ -81,10 +81,20 @@
     }
   }
 
+  // Only while a Recall task is open in the portal.
+  function recallActive() {
+    var state = window.SPU_RECALL_STATE;
+    return !!(state && state.isActive());
+  }
+
   function ensureButton() {
+    var existing = document.getElementById(BTN_ID);
+    if (!recallActive()) {
+      if (existing) existing.remove();
+      return;
+    }
     var search = searchButton();
     if (!search || !search.parentElement) return;
-    var existing = document.getElementById(BTN_ID);
     if (existing && existing.parentElement === search.parentElement) return;
     if (existing) existing.remove();
     var btn = document.createElement("button");
@@ -116,5 +126,6 @@
 
   var observer = new MutationObserver(bump);
   observer.observe(document.documentElement, { childList: true, subtree: true });
+  if (window.SPU_RECALL_STATE) window.SPU_RECALL_STATE.onChange(ensureButton);
   ensureButton();
 })();

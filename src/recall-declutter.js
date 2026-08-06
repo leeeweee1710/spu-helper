@@ -7,6 +7,9 @@
  * and add-to-cart buttons are a hazard. All of it is hidden while the Recall
  * UI is switched on (the "Custom UI" toggle under Recall in the popup).
  *
+ * Only while a Recall task is open in the portal (see src/recall-state.js) -
+ * browsing Shopee on its own must leave the storefront alone.
+ *
  * Hidden, never removed: the page is React-managed, and taking nodes out of the
  * tree can break its next render. One stylesheet does the work, so switching the
  * toggle off puts everything back.
@@ -193,16 +196,12 @@
     }
   }
 
-  try {
-    chrome.storage.sync.get({ recallEnabled: true }, function (r) {
-      setEnabled(!r || r.recallEnabled !== false);
-    });
-    chrome.storage.onChanged.addListener(function (changes, area) {
-      if (area === "sync" && changes.recallEnabled) {
-        setEnabled(changes.recallEnabled.newValue !== false);
-      }
-    });
-  } catch (e) {}
+  // Only while a Recall task is actually open in the portal.
+  var state = window.SPU_RECALL_STATE;
+  if (state) {
+    setEnabled(state.isActive());
+    state.onChange(setEnabled);
+  }
 
   window.SPU_RECALL_DECLUTTER = { apply: apply, undo: undo };
 })();

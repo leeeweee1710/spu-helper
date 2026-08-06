@@ -230,7 +230,22 @@
     closeThisTab();
   }
 
+  // Stashing only means something inside a Recall task.
+  function recallActive() {
+    var state = window.SPU_RECALL_STATE;
+    return !!(state && state.isActive());
+  }
+
+  function removeButton() {
+    var existing = document.getElementById(BTN_ID);
+    if (existing) existing.remove();
+  }
+
   function ensureButton() {
+    if (!recallActive()) {
+      removeButton();
+      return;
+    }
     var cart = cartButton();
     if (!cart || !cart.parentElement) return;
     var existing = document.getElementById(BTN_ID);
@@ -308,6 +323,10 @@
   var lastRun = 0;
 
   function pass() {
+    if (!recallActive()) {
+      removeButton();
+      return;
+    }
     reportCurrentProduct(); // cheap: only writes when the product changed
     markSoldOut();
     ensureButton();
@@ -354,6 +373,14 @@
     pass();
     if (document.getElementById(BTN_ID) || ++tries > 60) clearInterval(poll);
   }, 250);
+
+  // Entering or leaving a Recall task adds or removes the button.
+  if (window.SPU_RECALL_STATE) {
+    window.SPU_RECALL_STATE.onChange(function (on) {
+      if (on) loadState(pass);
+      else { removeButton(); clearCurrentProduct(); }
+    });
+  }
 
   // Know what is already stashed, and whether this is the seed, before the
   // button is first drawn.

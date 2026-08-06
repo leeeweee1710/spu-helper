@@ -117,8 +117,26 @@
     } catch (e) {}
   }
 
+  // Tells the storefront scripts whether a Recall task is being worked on.
+  // Set on a Recall page, cleared as soon as the portal moves to a Pair task or
+  // the task list, so the Shopee-side tools follow the task rather than the tab.
+  var lastActive = null;
+  function markActive(isActive) {
+    if (isActive === lastActive) return;
+    lastActive = isActive;
+    try {
+      chrome.storage.local.set({
+        recall_active: isActive ? { at: Date.now(), url: location.href } : null,
+      });
+    } catch (e) {}
+  }
+
   function check() {
-    if (!isRecallPage()) return;
+    if (!isRecallPage()) {
+      markActive(false);
+      return;
+    }
+    markActive(true);
     try {
       var root = getRoot();
       if (!root) { footprint("no-root"); return; }

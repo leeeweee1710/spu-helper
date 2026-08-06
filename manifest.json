@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SPU Annotation Helper",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Comprehensive toolkit for annotating at Shopee",
   "permissions": [
     "storage",
@@ -85,6 +85,7 @@
       ],
       "js": [
         "src/product-key.js",
+        "src/recall-state.js",
         "src/recall-duplicates.js",
         "src/recall-stash.js",
         "src/recall-declutter.js",
