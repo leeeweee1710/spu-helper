@@ -42,6 +42,21 @@
 
   var on = false;
 
+  // Item names in full. Comparing titles IS the job, so a name cut off at two
+  // lines costs more than a taller row. The search grid is a wrapping flexbox
+  // whose cards size to their content, so each row stretches to its own tallest
+  // card by itself.
+  //
+  // Not applied to the recommendation grids ("you may also like", 找相似): those
+  // cards are laid out at a pinned height that survives height:auto on the cell,
+  // the card, its inner column and the row, so unclamping there only makes the
+  // text spill over the row below.
+  var UNCLAMP =
+    '.shopee-search-item-result__item [class*="line-clamp"],' +
+    '[data-sqe="item"] [class*="line-clamp"]' +
+    "{display:block !important;-webkit-line-clamp:unset !important;" +
+    "line-clamp:unset !important;overflow:visible !important;max-height:none !important;}";
+
   function styleSheet() {
     var el = document.getElementById(STYLE_ID);
     if (el) return el;
@@ -49,7 +64,8 @@
     el.id = STYLE_ID;
     el.textContent =
       ALWAYS_HIDDEN.join(",") + "{display:none !important}" +
-      "[" + HIDE_ATTR + "]{display:none !important}";
+      "[" + HIDE_ATTR + "]{display:none !important}" +
+      UNCLAMP;
     (document.head || document.documentElement).appendChild(el);
     return el;
   }
@@ -78,9 +94,11 @@
 
   // ---- search-result cards ---------------------------------------------
   // Keep the picture, the title and the price; drop the sales furniture.
+  // ".shopee_ic" is the card wrapper used by the recommendation grids, which
+  // carry none of the search-result classes.
   function trimCards() {
     var cards = document.querySelectorAll(
-      '.shopee-search-item-result__item, [data-sqe="item"], [data-spu-card]'
+      '.shopee-search-item-result__item, [data-sqe="item"], [data-spu-card], .shopee_ic'
     );
     for (var i = 0; i < cards.length; i++) trimCard(cards[i]);
   }
