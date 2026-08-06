@@ -853,10 +853,32 @@
     return null;
   }
 
+  // The toggle row lives in one product's column; the other column holds an
+  // empty strip of the same height to keep the two lined up. Both have to go,
+  // or an unexplained blank band is left beside the hidden row.
+  var HINT_ROW_ATTR = "data-spu-hint-row";
+  function hintRows() {
+    var t = nativeToggle();
+    if (!t || !t.container) return [];
+    var row = t.container;
+    var column = row.parentElement;
+    var rows = [row];
+    if (!column) return rows;
+    var index = Array.prototype.indexOf.call(column.children, row);
+    var panels = getRoot().querySelectorAll(".relative.h-full.flex-1.overflow-auto.p-4");
+    for (var i = 0; i < panels.length; i++) {
+      var other = panels[i].firstElementChild; // the product's content column
+      if (!other || other === column) continue;
+      var spacer = other.children[index];
+      // Only ever an empty strip - never a block that carries product info.
+      if (spacer && !(spacer.textContent || "").trim()) rows.push(spacer);
+    }
+    return rows;
+  }
+
   // Turn the native highlighter OFF at the source (so it stops splitting the
-  // product text into <span data-start> elements) and hide its toggle. The
-  // toggle only exists in the first product, so hiding it also re-aligns the
-  // two panels. Returns true if we just flipped it off (DOM will re-render).
+  // product text into <span data-start> elements) and hide its row on both
+  // sides. Returns true if we just flipped it off (DOM will re-render).
   function disableNativeHighlights() {
     var t = nativeToggle();
     if (!t) return false;
@@ -865,14 +887,24 @@
       t.sw.click();
       flipped = true;
     }
-    if (t.container) t.container.style.display = "none";
+    hintRows().forEach(function (el) {
+      el.setAttribute(HINT_ROW_ATTR, "1");
+      // The portal's utility CSS carries !important (".flex{display:flex!important}"),
+      // so a plain inline style loses to it and the row stays put.
+      el.style.setProperty("display", "none", "important");
+    });
     return flipped;
   }
 
   function restoreNativeHighlights() {
+    var hidden = getRoot().querySelectorAll("[" + HINT_ROW_ATTR + "]");
+    for (var i = 0; i < hidden.length; i++) {
+      hidden[i].style.removeProperty("display");
+      hidden[i].removeAttribute(HINT_ROW_ATTR);
+    }
     var t = nativeToggle();
     if (!t) return;
-    if (t.container) t.container.style.display = "";
+    if (t.container) t.container.style.removeProperty("display");
     if (t.sw && t.sw.getAttribute("aria-checked") === "false") t.sw.click();
   }
 
