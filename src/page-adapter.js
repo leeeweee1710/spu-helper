@@ -692,9 +692,16 @@
 
   // Product dimensions like "10x20x30", "30 * 10 * 20", "5×8" - order- and
   // separator/space-insensitive: canonicalise to sorted numbers.
+  //
+  // A number glued to letters is a model code, not a measurement: "SHOEI Z7 Z8
+  // X15" must not read as 8x15. So the run has to start on a boundary - a digit
+  // preceded by a letter or digit is rejected. A trailing letter is fine, since
+  // units ("10x20cm") are written that way.
   function findDims(norm) {
     var re = /\d+(?:\.\d+)?(?:\s*[x×*]\s*\d+(?:\.\d+)?)+/g, res = [], m;
     while ((m = re.exec(norm)) !== null) {
+      var before = m.index > 0 ? norm.charAt(m.index - 1) : "";
+      if (before && /[a-z0-9]/.test(before)) continue; // part of a model code
       var nums = m[0].match(/\d+(?:\.\d+)?/g);
       if (!nums || nums.length < 2) continue;
       var canon = nums.map(Number).sort(function (a, b) { return a - b; }).join("x");
@@ -702,13 +709,23 @@
     }
     return res;
   }
+  // Runs after the substring matcher, and only paints ranges nothing else took:
+  // a dimension hint is for measurements written in a different order, so it must
+  // never carve a hole in a longer run that already matched (identical titles
+  // used to come out shattered around a stray "8 x 15").
   function markDims(left, right, buckets, lOcc, rOcc) {
     var dl = findDims(left.norm), dr = findDims(right.norm);
     if (!dl.length || !dr.length) return;
     var setL = {}; dl.forEach(function (d) { setL[d.canon] = 1; });
     var shared = {}; dr.forEach(function (d) { if (setL[d.canon]) shared[d.canon] = 1; });
-    dl.forEach(function (d) { if (shared[d.canon]) { addRange(left, d.start, d.end, "dim", buckets); occupy(lOcc, d.start, d.end - d.start); } });
-    dr.forEach(function (d) { if (shared[d.canon]) { addRange(right, d.start, d.end, "dim", buckets); occupy(rOcc, d.start, d.end - d.start); } });
+    var paint = function (side, occ, d) {
+      var len = d.end - d.start;
+      if (!shared[d.canon] || !rangeFree(occ, d.start, len)) return;
+      addRange(side, d.start, d.end, "dim", buckets);
+      occupy(occ, d.start, len);
+    };
+    dl.forEach(function (d) { paint(left, lOcc, d); });
+    dr.forEach(function (d) { paint(right, rOcc, d); });
   }
 
   // Importance of a field pairing (lower = more important). model<->model is
@@ -810,12 +827,14 @@
     var lOcc = new Uint8Array(left.norm.length);
     var rOcc = new Uint8Array(right.norm.length);
 
-    // Dimensions first (order-independent) so substring matching won't split them.
-    markDims(left, right, buckets, lOcc, rOcc);
-
-    // Substring matches, ranked by field importance (model<->model first).
+    // Substring matches first, ranked by field importance (model<->model first),
+    // so the longest shared runs stay whole.
     var matches = computeMatches(left.norm, right.norm, minLen);
     markMatches(left, right, matches, buckets, lOcc, rOcc, minLen);
+
+    // Then dimensions, for measurements written in a different order - only on
+    // what the substring matcher left untouched.
+    markDims(left, right, buckets, lOcc, rOcc);
 
     clearSmartHints();
     var css = "";
