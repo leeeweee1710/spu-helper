@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SPU Annotation Helper",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "Comprehensive toolkit for annotating at Shopee",
   "permissions": [
     "storage",

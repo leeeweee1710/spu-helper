@@ -35,7 +35,7 @@
     enabled: true,
     autoKeyY: true,
     smartHints: true, // replace native hints with our exact-match highlighter
-    smartHintsMinLen: 3, // shortest matched run to highlight
+    smartHintsMinLen: 2, // shortest matched run to highlight
     autoNextOnClick: true, // clicking an option moves to the next product
     autoNextOnCustom: true, // keying in a custom reason moves to the next product
     pageSize: 100, // products per page to switch to when a task is opened

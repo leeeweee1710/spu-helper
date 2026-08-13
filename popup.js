@@ -4,7 +4,7 @@ var DEFAULTS = {
   enabled: true,
   autoKeyY: true,
   smartHints: true,
-  smartHintsMinLen: 3,
+  smartHintsMinLen: 2,
   autoNextOnClick: true,
   autoNextOnCustom: true,
   pageSize: 100,
